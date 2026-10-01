@@ -1,8 +1,12 @@
 """Detects an audible metronome in a practice recording.
 
-A metronome produces short broadband clicks at a strictly constant interval.
+A digital metronome produces short broadband clicks at a strictly constant interval.
 Human playing drifts by tens of milliseconds, so a long run of onsets that fit
 a fixed grid with very low timing error is taken as a metronome.
+
+Mechanical metronomes and clicks masked by playing do not fit a fixed grid, so a
+second, looser check follows bright onsets beat by beat and accepts a long chain
+whose beat-to-beat timing is steadier than typical human playing.
 """
 import subprocess
 import tempfile
@@ -20,6 +24,11 @@ MIN_RUN = 12  # consecutive matched beats
 MIN_HITS = 12
 MIN_HIT_RATE = 0.45  # share of grid beats with a click, when not consecutive
 FINAL_TOL = 0.005  # tolerance on the refined grid
+STEADY_TOL = 0.04  # how far a beat may land from the predicted time, seconds
+STEADY_MIN_BEATS = 20
+STEADY_MIN_COVER = 0.9  # share of beats in the chain that have a click
+STEADY_MAX_JITTER_MS = 10.0
+STEADY_MAX_ANCHORS = 60
 MIN_FLUX = 0.4  # log-energy jump per 2 ms frame
 
 
@@ -137,8 +146,75 @@ def detect(data: bytes):
                 if best is None or score > best[0]:
                     best = (score, p, ks, hit)
     if best is None:
-        return False, None, duration
+        bpm = detect_steady(x, env)
+        return (True, bpm, duration) if bpm else (False, None, duration)
     return True, int(round(60 / true_period(*best[1:]))), duration
+
+
+def bright_onsets(x: np.ndarray) -> np.ndarray:
+    sos = butter(4, 4000, btype="highpass", fs=SR, output="sos")
+    y = sosfiltfilt(sos, x)
+    n = 1 + max(0, len(y) - WIN) // HOP
+    idx = np.arange(WIN)[None, :] + HOP * np.arange(n)[:, None]
+    energy = np.sqrt(np.mean(y[idx] ** 2, axis=1))
+    # A floor tied to the loudest clicks keeps faint high-band wiggles from counting
+    energy += 0.02 * np.percentile(energy, 99) + 1e-6
+    flux = np.maximum(np.diff(np.log(energy), prepend=np.log(energy[0])), 0)
+    med = np.median(flux)
+    mad = np.median(np.abs(flux - med)) + 1e-9
+    peaks, _ = find_peaks(flux, height=max(med + 6 * mad, 1.5 * MIN_FLUX), distance=int(0.1 * SR / HOP))
+    return peaks * HOP / SR
+
+
+def track_beats(onsets: np.ndarray, start: float, period: float):
+    """Follows beats from `start`, letting the period drift slowly; stops after two misses."""
+    ks, ts = [0], [start]
+    k = misses = 0
+    while True:
+        k += 1
+        pred = ts[-1] + period * (k - ks[-1])
+        if pred > onsets[-1] + STEADY_TOL:
+            break
+        j = np.searchsorted(onsets, pred)
+        near = min((onsets[i] for i in (j - 1, j) if 0 <= i < len(onsets)), key=lambda o: abs(o - pred))
+        if abs(near - pred) <= STEADY_TOL:
+            period = 0.8 * period + 0.2 * (near - ts[-1]) / (k - ks[-1])
+            ks.append(k)
+            ts.append(near)
+            misses = 0
+        else:
+            misses += 1
+            if misses > 1:
+                break
+    return np.array(ks), np.array(ts)
+
+
+def detect_steady(x: np.ndarray, env: np.ndarray):
+    """Beat tempo when bright clicks keep a steadier pulse than human playing, else None."""
+    onsets = bright_onsets(x)
+    if len(onsets) < STEADY_MIN_BEATS:
+        return None
+    anchors = onsets[np.linspace(0, len(onsets) - 1, min(len(onsets), STEADY_MAX_ANCHORS)).astype(int)]
+    # Playing often pulses faster than the click, so also try multiples of each period
+    periods = sorted({round(p * f, 4) for p in candidate_periods(env)[:8] for f in (1, 2, 3, 4)
+                      if 60 / MAX_BPM <= p * f <= 60 / MIN_BPM})
+    best = None
+    for period in periods:
+        for anchor in anchors:
+            ks, ts = track_beats(onsets, anchor, period)
+            if len(ks) < STEADY_MIN_BEATS or len(ks) / (ks[-1] + 1) < STEADY_MIN_COVER:
+                continue
+            # Deviation of each beat from the midpoint of its two neighbours
+            inner = np.where((np.diff(ks)[:-1] == 1) & (np.diff(ks)[1:] == 1))[0] + 1
+            if len(inner) < 10:
+                continue
+            jitter_ms = float(np.std(ts[inner] - (ts[inner - 1] + ts[inner + 1]) / 2) * 1000)
+            if jitter_ms > STEADY_MAX_JITTER_MS:
+                continue
+            beat = float(np.median(np.diff(ts) / np.diff(ks)))
+            if best is None or (len(ks), -jitter_ms) > best[0]:
+                best = ((len(ks), -jitter_ms), beat)
+    return int(round(60 / best[1])) if best else None
 
 
 def true_period(period: float, ks: np.ndarray, hit: np.ndarray) -> float:

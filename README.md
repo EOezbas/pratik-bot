@@ -5,7 +5,7 @@ Arkadaş grubunun günlük müzik pratiği alışkanlığı için bir Telegram b
 ## Özellikler
 
 - **Kayıt:** Sesli mesaj, yuvarlak video, normal video ve "Dosya" olarak gönderilen ses ya da video dosyaları kaydedilir (en fazla 20 MB). Bot kaydı ❤ ile işaretler.
-- **Metronom algılama:** Kayıtta duyulabilir bir metronom varsa bot 🔥 koyar ve BPM'i kaydeder. Metronomsuz kayıtlarda tempo çalınan notalardan tahmin edilir ve takvimde gri "♩ ~84 bpm" olarak gösterilir; tempo düzensizse (rubato, serbest çalım) gösterilmez. Tahmin bazen yarım ya da çift tempo bulabilir. Bu bilgi takibi etkilemez.
+- **Metronom algılama:** Kayıtta duyulabilir bir metronom varsa bot 🔥 koyar ve BPM'i kaydeder. Mekanik metronomlar gibi biraz kayan tıklar da kabul edilir; bunun bedeli, çok düzenli çalan (zamanlama sapması ~10 ms altı) birinin metronomsuz kaydının da 🔥 alabilmesi. Metronomsuz kayıtlarda tempo çalınan notalardan tahmin edilir ve takvimde gri "♩ ~84 bpm" olarak gösterilir; tempo düzensizse (rubato, serbest çalım) gösterilmez. Tahmin bazen yarım ya da çift tempo bulabilir. Bu bilgi takibi etkilemez.
 - **Seri ve joker:** Haftada (Pazartesi–Pazar) atlanan ilk gün 🃏 joker sayılır ve seriyi bozmaz.
 - **Gün başlangıcı:** Gece 04:00'e kadar atılan kayıtlar önceki güne sayılır.
 - **Hatırlatma:** Her gün 21:00'de o gün kayıt atmayanlar grupta etiketlenir.

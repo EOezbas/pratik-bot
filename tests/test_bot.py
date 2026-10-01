@@ -521,3 +521,48 @@ def test_sil_old_message_falls_back_to_notice(env, plain_wav):
     assert not env.fs.store["recordings"]
     assert "elle silebilirsin" in env.tg.sent()[-1]
     assert not [p for m, p in env.tg.calls if m == "sendMessage" and "⚠️" in p["text"]]
+
+
+# ---------- steady clicks that drift (mechanical metronome) ----------
+
+def drifting_click_take(seconds=36, drift=0.03, click_jitter=0.003, play_jitter=0.02, seed=7):
+    import io
+    import wave
+    sr = 16000
+    rng = np.random.default_rng(seed)
+    y = np.zeros(sr * (seconds + 1))
+    n = int(0.01 * sr)
+    tt = np.arange(n) / sr
+    click = rng.standard_normal(n) * np.exp(-tt / 0.0015)
+    t = 0.4
+    while t < seconds:
+        period = 1.0 * (1 + drift * np.sin(2 * np.pi * t / 30))
+        i = int((t + rng.normal(0, click_jitter)) * sr)
+        y[i:i + n] += 0.5 * click
+        # Notes on every beat and in between, as a player following the click
+        for sub in (0, 0.25, 0.5, 0.75):
+            m = int(0.3 * sr)
+            nt = np.arange(m) / sr
+            note = np.sin(2 * np.pi * rng.choice([196, 247, 294]) * nt) * np.exp(-nt / 0.15)
+            note[:80] *= np.linspace(0, 1, 80)  # soft attack, unlike the click
+            j = int((t + sub * period + rng.normal(0, play_jitter)) * sr)
+            y[j:j + m] += 0.6 * note[:len(y) - j]
+        t += period
+    y /= np.abs(y).max() * 1.1
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes((y * 32767).astype(np.int16).tobytes())
+    return buf.getvalue()
+
+
+def test_drifting_mechanical_metronome_detected(env):
+    has, bpm, _, _ = env.main.metronome.analyze(drifting_click_take())
+    assert has and 58 <= bpm <= 62
+
+
+def test_loose_human_playing_not_metronome(env):
+    m = env.main.metronome
+    assert not any(m.detect(wav_bytes(seed=s, seconds=36))[0] for s in range(3))

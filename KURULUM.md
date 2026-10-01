@@ -47,7 +47,7 @@ Gruba **ilk mesaj** atıldığında bot o grubu kendine kaydeder ve sadece orada
 - `/ayril`: Hatırlatmalardan çık.
 - `/sil`: Kendi kaydına yanıt olarak yazınca kayıt takvimden ve depodan silinir.
 
-Gece 03:00'e kadar atılan kayıtlar önceki güne sayılır. Bu saati `DAY_START_HOUR` ile değiştirebilirsin.
+Gece 04:00'e kadar atılan kayıtlar önceki güne sayılır. Bu saati `DAY_START_HOUR` ile değiştirebilirsin.
 
 ## Ayarlar
 
@@ -56,7 +56,7 @@ Gece 03:00'e kadar atılan kayıtlar önceki güne sayılır. Bu saati `DAY_STAR
 | Değişken | Varsayılan | Açıklama |
 |---|---|---|
 | `REMINDER_CRON` | `0 21 * * *` | Hatırlatma saati. İki hatırlatma için örnek: `0 21,23 * * *` |
-| `DAY_START_HOUR` | `3` | Günün başladığı saat |
+| `DAY_START_HOUR` | `4` | Günün başladığı saat |
 | `REGION` | `europe-west3` | Frankfurt |
 | `ALLOWED_CHAT_ID` | boş | Botu belirli bir gruba kilitlemek için |
 

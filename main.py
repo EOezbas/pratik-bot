@@ -23,7 +23,7 @@ ALLOWED_CHAT_ID = os.environ.get("ALLOWED_CHAT_ID", "")
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "").rstrip("/")
 TZ = ZoneInfo(os.environ.get("TZ_NAME", "Europe/Berlin"))
 # Recordings before this hour count for the previous day
-DAY_START_HOUR = int(os.environ.get("DAY_START_HOUR", "3"))
+DAY_START_HOUR = int(os.environ.get("DAY_START_HOUR", "4"))
 
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 FILE_API = f"https://api.telegram.org/file/bot{BOT_TOKEN}"

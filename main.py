@@ -118,8 +118,18 @@ def tg(method, **params):
         return None
 
 
+ALLOWED_UPDATES = ["message", "edited_message", "message_reaction"]
+
+
 def register_commands():
     tg("setMyCommands", commands=[{"command": c, "description": d} for c, d in BOT_COMMANDS])
+    # Keeps the webhook subscribed to reactions without a manual re-run of deploy.sh
+    if PUBLIC_URL:
+        info = tg("getWebhookInfo")
+        info = info if isinstance(info, dict) else {}
+        if sorted(info.get("allowed_updates") or []) != sorted(ALLOWED_UPDATES):
+            tg("setWebhook", url=f"{PUBLIC_URL}/telegram", secret_token=WEBHOOK_SECRET,
+               allowed_updates=ALLOWED_UPDATES)
 
 
 def send(chat_id, text, reply_to=None):
@@ -338,6 +348,9 @@ register_commands()
 # ---------- telegram handling ----------
 
 def handle_update(upd):
+    if upd.get("message_reaction"):
+        handle_reaction(upd["message_reaction"])
+        return
     msg = upd.get("message")
     edited = upd.get("edited_message")
     if edited:
@@ -396,6 +409,19 @@ def handle_update(upd):
             ref.update({"caption": (old + "\n" + text).strip()})
             tg("setMessageReaction", chat_id=chat["id"], message_id=msg["message_id"],
                reaction=[{"type": "emoji", "emoji": "✍"}])
+
+
+def handle_reaction(r):
+    """Any reaction from someone other than the author counts as having listened."""
+    user = r.get("user") or {}
+    chat_id = str((r.get("chat") or {}).get("id"))
+    if not user or user.get("is_bot") or not r.get("new_reaction") or chat_id != get_chat_id():
+        return
+    ref = db.collection("recordings").document(f'{chat_id}_{r["message_id"]}')
+    snap = ref.get()
+    uid = str(user["id"])
+    if snap.exists and snap.get("user_id") != uid:
+        ref.update({"listeners": firestore.ArrayUnion([uid])})
 
 
 def find_media(msg):

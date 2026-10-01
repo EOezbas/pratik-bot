@@ -65,7 +65,7 @@ gcloud run services update "$SERVICE" --region "$REGION" --update-env-vars "PUBL
 echo "== Telegram webhook"
 RESP="$(curl -sS "https://api.telegram.org/bot${BOT_TOKEN}/setWebhook" \
   -H 'Content-Type: application/json' \
-  -d "{\"url\":\"${URL}/telegram\",\"secret_token\":\"${WEBHOOK_SECRET}\",\"allowed_updates\":[\"message\",\"edited_message\"]}")"
+  -d "{\"url\":\"${URL}/telegram\",\"secret_token\":\"${WEBHOOK_SECRET}\",\"allowed_updates\":[\"message\",\"edited_message\",\"message_reaction\"]}")"
 echo "$RESP"
 if [[ "$RESP" != *'"ok":true'* ]]; then
   echo "Webhook could not be set. Check BOT_TOKEN." >&2

@@ -305,3 +305,29 @@ def test_admin_assigns_celebration_per_milestone(env, plain_wav):
         env.add_recording(1, back)
     env.voice(EMRE, plain_wav)
     assert ("sendSticker", {"chat_id": -1001, "sticker": "S7"}) in env.tg.calls
+
+
+# ---------- reactions as listens ----------
+
+def test_reaction_marks_listened(env, plain_wav):
+    join_all(env, EMRE, CAN)
+    vid = env.voice(EMRE, plain_wav)
+    rec_id = f"-1001_{vid}"
+
+    def react(user, emoji, chat_id=-1001):
+        env.main.handle_update({"message_reaction": {
+            "chat": {"id": chat_id, "type": "supergroup"}, "message_id": vid, "user": user, "date": 0,
+            "old_reaction": [], "new_reaction": [{"type": "emoji", "emoji": emoji}] if emoji else []}})
+
+    react(EMRE, "👍")
+    react(CAN, None)
+    react(CAN, "👂", chat_id=-999)
+    assert "listeners" not in env.fs.store["recordings"][rec_id]
+    react(CAN, "👂")
+    react(CAN, "🔥")
+    assert env.fs.store["recordings"][rec_id]["listeners"] == ["2"]
+
+
+def test_webhook_subscribes_to_reactions(env):
+    calls = [p for m, p in env.tg.calls if m == "setWebhook"]
+    assert calls and "message_reaction" in calls[-1]["allowed_updates"]

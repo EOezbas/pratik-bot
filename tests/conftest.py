@@ -29,7 +29,10 @@ class Snap:
         return dict(self._d)
 
     def get(self, k):
-        return self._d.get(k)
+        # Real Firestore raises for a missing field
+        if k not in self._d:
+            raise KeyError(f"'{k}' is not contained in the data")
+        return self._d[k]
 
 
 class Doc:

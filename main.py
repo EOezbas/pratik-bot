@@ -161,13 +161,18 @@ def tr_date(d, with_weekday=True):
 
 # ---------- state ----------
 
+def field(snap, name):
+    """Reads a document field; missing documents and fields give None instead of raising."""
+    return (snap.to_dict() or {}).get(name) if snap.exists else None
+
+
 def state_ref():
     return db.collection("config").document("state")
 
 
 def get_admin_id():
     snap = state_ref().get()
-    return snap.get("admin_id") if snap.exists else None
+    return field(snap, "admin_id")
 
 
 _token_cache = {"value": None, "at": 0.0}
@@ -176,7 +181,7 @@ _token_cache = {"value": None, "at": 0.0}
 def web_token():
     if time.time() - _token_cache["at"] > TOKEN_CACHE_SEC:
         snap = state_ref().get()
-        stored = snap.get("web_token") if snap.exists else None
+        stored = field(snap, "web_token")
         _token_cache.update(value=stored or WEB_TOKEN, at=time.time())
     return _token_cache["value"]
 
@@ -192,7 +197,8 @@ def get_chat_id():
     if ALLOWED_CHAT_ID:
         return ALLOWED_CHAT_ID
     snap = state_ref().get()
-    return str(snap.get("chat_id")) if snap.exists and snap.get("chat_id") else None
+    cid = field(snap, "chat_id")
+    return str(cid) if cid else None
 
 
 def accept_chat(chat):
@@ -215,7 +221,7 @@ def upsert_member(u, activate=True):
     if not snap.exists:
         data["first_day"] = today().isoformat()
         data["active"] = True
-    elif activate and not snap.get("active"):
+    elif activate and not field(snap, "active"):
         data["active"] = True
         data["left_day"] = firestore.DELETE_FIELD
     ref.set(data, merge=True)
@@ -405,7 +411,7 @@ def handle_update(upd):
         ref = db.collection("recordings").document(f'{chat["id"]}_{rep["message_id"]}')
         snap = ref.get()
         if snap.exists:
-            old = snap.get("caption") or ""
+            old = field(snap, "caption") or ""
             ref.update({"caption": (old + "\n" + text).strip()})
             tg("setMessageReaction", chat_id=chat["id"], message_id=msg["message_id"],
                reaction=[{"type": "emoji", "emoji": "✍"}])
@@ -420,7 +426,7 @@ def handle_reaction(r):
     ref = db.collection("recordings").document(f'{chat_id}_{r["message_id"]}')
     snap = ref.get()
     uid = str(user["id"])
-    if snap.exists and snap.get("user_id") != uid:
+    if snap.exists and field(snap, "user_id") != uid:
         ref.update({"listeners": firestore.ArrayUnion([uid])})
 
 
@@ -1035,7 +1041,7 @@ def mark_listened(doc_id):
         return "", 204
     ref = db.collection("recordings").document(doc_id)
     snap = ref.get()
-    if snap.exists and snap.get("user_id") != uid:
+    if snap.exists and field(snap, "user_id") != uid:
         ref.update({"listeners": firestore.ArrayUnion([uid])})
     return "", 204
 

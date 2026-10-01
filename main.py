@@ -5,6 +5,7 @@ import html
 import logging
 import mimetypes
 import os
+import random
 import re
 import secrets
 import time
@@ -490,21 +491,26 @@ def check_milestones(chat_id, user):
     hist = history(member, st, today())
     cur, _ = chain_stats(hist)
     reached = set(member.get("milestones") or [])
-    new_keys, lines = [], []
+    new_keys, lines, emoji = [], [], "🎉"
     start = current_chain_start(hist)
     if cur in STREAK_MILESTONES and start:
         key = f"streak{cur}:{start.isoformat()}"
         if key not in reached:
             new_keys.append(key)
             lines.append(f"🎉 {mention(uid, member.get('name', ''))} {cur} günlük seriye ulaştı!")
+            if cur >= 100:
+                emoji = "🏆"
     if st["count"] in COUNT_MILESTONES:
         key = f"count{st['count']}"
         if key not in reached:
             new_keys.append(key)
             lines.append(f"🎉 {mention(uid, member.get('name', ''))} {st['count']}. kaydını attı!")
+            if emoji == "🎉" and not any("seriye" in x for x in lines[:-1]):
+                emoji = "🎊"
     if new_keys:
         ref.set({"milestones": sorted(reached | set(new_keys))}, merge=True)
         send(chat_id, "\n".join(lines))
+        send_celebration(chat_id, emoji)
 
 
 def handle_command(cmd, msg, user):
@@ -624,25 +630,89 @@ def delete_recording(msg, user):
     tg("setMessageReaction", chat_id=chat_id, message_id=rep["message_id"], reaction=[])
     send(chat_id, "🗑 Kayıt takvimden ve depodan silindi. Telegram'daki mesajı istersen kendin silebilirsin.", mid)
 
+def celebrations_ref():
+    return db.collection("config").document("celebrations")
+
+
+def load_celebrations():
+    snap = celebrations_ref().get()
+    return list(snap.get("items") or []) if snap.exists else []
+
+
+def celebration_media(msg):
+    for kind in ("sticker", "animation"):
+        item = msg.get(kind)
+        if item:
+            return {"type": kind, "file_id": item["file_id"], "uid": item["file_unique_id"]}
+    return None
+
+
+def send_celebration(chat_id, emoji):
+    items = load_celebrations()
+    if items:
+        item = random.choice(items)
+        method = "sendSticker" if item["type"] == "sticker" else "sendAnimation"
+        if tg(method, chat_id=chat_id, **{item["type"]: item["file_id"]}):
+            return
+    # A message with a single emoji shows up large and animated
+    tg("sendMessage", chat_id=chat_id, text=emoji)
+
+
 def handle_private(msg):
     chat_id = msg["chat"]["id"]
     user = msg.get("from") or {}
     text = (msg.get("text") or "").strip().lower()
     cmd = text.split()[0].split("@")[0] if text else ""
-    cmd = cmd.replace("ö", "o").replace("ı", "i")
-    if cmd != "/yonetici":
-        send(chat_id, "Bu bot sadece pratik grubunda çalışıyor.")
-        return
+    cmd = cmd.replace("ö", "o").replace("ı", "i").replace("ş", "s")
     admin = get_admin_id()
-    if admin and str(admin) == str(user.get("id")):
-        send(chat_id, "Zaten yöneticisin, hata uyarıları sana geliyor.")
-    elif admin:
-        send(chat_id, "Yönetici zaten ayarlı.")
-    elif not db.collection("members").document(str(user.get("id"))).get().exists:
-        send(chat_id, "Önce grupta kayıt at ya da /katil yaz.")
-    else:
-        state_ref().set({"admin_id": str(user["id"])}, merge=True)
-        send(chat_id, "Tamam, botta bir sorun olursa sana buradan haber vereceğim.")
+    is_admin = bool(admin) and str(admin) == str(user.get("id"))
+
+    if cmd == "/yonetici":
+        if is_admin:
+            send(chat_id, "Zaten yöneticisin, hata uyarıları sana geliyor.")
+        elif admin:
+            send(chat_id, "Yönetici zaten ayarlı.")
+        elif not db.collection("members").document(str(user.get("id"))).get().exists:
+            send(chat_id, "Önce grupta kayıt at ya da /katil yaz.")
+        else:
+            state_ref().set({"admin_id": str(user["id"])}, merge=True)
+            send(chat_id, "Tamam, botta bir sorun olursa sana buradan haber vereceğim.\n\n"
+                          "Kutlamalarda gönderilecek sticker ya da GIF'leri de bana buradan atabilirsin.")
+        return
+
+    media = celebration_media(msg)
+    if media or cmd in ("/kutlamalar", "/sil"):
+        if not is_admin:
+            send(chat_id, "Kutlama sticker'larını sadece yönetici değiştirebilir.")
+            return
+        items = load_celebrations()
+        if media:
+            if any(i["uid"] == media["uid"] for i in items):
+                send(chat_id, "Bu zaten listede.")
+            else:
+                items.append(media)
+                celebrations_ref().set({"items": items})
+                send(chat_id, f"🎉 Kutlama listesine eklendi. Listede {len(items)} tane var.")
+        elif cmd == "/kutlamalar":
+            if not items:
+                send(chat_id, "Liste boş, kutlamalarda büyük 🎉 gidiyor. Eklemek için bana sticker ya da GIF at.")
+                return
+            send(chat_id, f"Listede {len(items)} tane var. Silmek istediğine yanıt verip /sil yaz.")
+            for i in items:
+                tg("sendSticker" if i["type"] == "sticker" else "sendAnimation",
+                   chat_id=chat_id, **{i["type"]: i["file_id"]})
+        else:
+            target = celebration_media(msg.get("reply_to_message") or {})
+            if not target:
+                send(chat_id, "Silmek istediğin sticker ya da GIF'e yanıt verip /sil yaz.")
+                return
+            left = [i for i in items if i["uid"] != target["uid"]]
+            celebrations_ref().set({"items": left})
+            send(chat_id, f"🗑 Silindi. Listede {len(left)} tane kaldı." if len(left) < len(items)
+                 else "Bu listede yoktu.")
+        return
+
+    send(chat_id, "Bu bot sadece pratik grubunda çalışıyor.")
 
 
 @app.errorhandler(Exception)

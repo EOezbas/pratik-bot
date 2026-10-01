@@ -261,3 +261,39 @@ def test_admin_registration_and_alert(env, plain_wav):
 def test_webhook_secret(env):
     assert env.client.post("/telegram", json={}).status_code == 403
     assert env.client.post("/telegram", json={}, headers={"X-Telegram-Bot-Api-Secret-Token": "hook"}).status_code == 200
+
+
+# ---------- celebrations ----------
+
+def make_admin(env):
+    join_all(env, EMRE)
+    env.message(EMRE, chat={"id": 1, "type": "private"}, text="/yonetici")
+
+
+def test_milestone_sends_big_emoji_without_stickers(env, plain_wav):
+    join_all(env, EMRE)
+    env.set_first_day(1, 10)
+    for back in range(1, 7):
+        env.add_recording(1, back)
+    env.voice(EMRE, plain_wav)
+    assert env.tg.sent()[-1] == "🎉"
+
+
+def test_admin_manages_celebration_stickers(env, plain_wav):
+    make_admin(env)
+    private = {"id": 1, "type": "private"}
+    env.message(CAN, chat={"id": 2, "type": "private"}, sticker={"file_id": "S0", "file_unique_id": "u0"})
+    assert "sadece yönetici" in env.tg.sent(2)[-1]
+    env.message(EMRE, chat=private, sticker={"file_id": "S1", "file_unique_id": "u1"})
+    env.message(EMRE, chat=private, animation={"file_id": "G1", "file_unique_id": "u2"})
+    env.message(EMRE, chat=private, sticker={"file_id": "S1", "file_unique_id": "u1"})
+    assert "zaten listede" in env.tg.sent(1)[-1]
+    assert len(env.fs.store["config"]["celebrations"]["items"]) == 2
+    env.message(EMRE, chat=private, text="/sil", reply_to_message={"message_id": 5, "animation": {"file_id": "G1", "file_unique_id": "u2"}})
+    assert [i["uid"] for i in env.fs.store["config"]["celebrations"]["items"]] == ["u1"]
+
+    env.set_first_day(1, 10)
+    for back in range(1, 7):
+        env.add_recording(1, back)
+    env.voice(EMRE, plain_wav)
+    assert ("sendSticker", {"chat_id": -1001, "sticker": "S1"}) in env.tg.calls

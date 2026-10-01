@@ -935,6 +935,9 @@ def calendar_page():
     month_users = {r["user_id"] for r in recs}
     shown = [m for m in members if m.get("active") or m["id"] in month_users]
     names = {m["id"]: m["name"] for m in members}
+    all_stats = load_stats()
+    hists = {m["id"]: history(m, all_stats.get(m["id"], empty_stats()), t) for m in shown}
+    jokers = {uid: {d.isoformat() for d, s in h if s == "joker"} for uid, h in hists.items()}
 
     def states_for(day):
         out = []
@@ -943,6 +946,8 @@ def calendar_page():
             st = member_state(m, day, key in rec_users, t)
             if st == "done" and key in metro_users:
                 st = "metro"
+            elif st == "missed" and day.isoformat() in jokers[m["id"]]:
+                st = "joker"
             if st:
                 out.append({"name": m["name"], "state": st})
         return out
@@ -981,11 +986,11 @@ def calendar_page():
             days.append({
                 "iso": d.isoformat(), "label": tr_date(d), "is_today": d == t, "recs": items,
                 "missed": [s["name"] for s in sts if s["state"] == "missed"],
+                "jokers": [s["name"] for s in sts if s["state"] == "joker"],
                 "pending": [s["name"] for s in sts if s["state"] == "pending"],
             })
         d -= dt.timedelta(days=1)
 
-    all_stats = load_stats()
     all_days = {uid: st["days"] for uid, st in all_stats.items()}
     all_metro = {uid: st["metro"] for uid, st in all_stats.items()}
     summary = []
@@ -995,11 +1000,11 @@ def calendar_page():
         missed = 0
         d = first
         while d <= min(last, t - dt.timedelta(days=1)):
-            if member_state(m, d, d.isoformat() in s, t) == "missed":
+            if member_state(m, d, d.isoformat() in s, t) == "missed" and d.isoformat() not in jokers[m["id"]]:
                 missed += 1
             d += dt.timedelta(days=1)
         metro_month = sum(1 for x in all_metro.get(m["id"], set()) if first.isoformat() <= x <= last.isoformat())
-        cur, _ = chain_stats(history(m, all_stats.get(m["id"], empty_stats()), t))
+        cur, _ = chain_stats(hists[m["id"]])
         summary.append({"name": m["name"], "streak": cur, "done": month_done, "missed": missed,
                         "metro": metro_month,
                         "active": m.get("active")})
@@ -1125,6 +1130,8 @@ header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:fle
 .dot.metro{background:var(--gold);box-shadow:0 0 0 1.5px var(--gold-soft)}
 .bpm{font-family:var(--f-mono);font-size:12px;font-weight:500;color:var(--ink);background:var(--gold-soft);border:1px solid var(--gold);border-radius:999px;padding:1px 8px}
 .dot.missed{background:transparent;box-shadow:inset 0 0 0 2px var(--miss)}
+.dot.joker{background:transparent;box-shadow:inset 0 0 0 2px var(--accent)}
+.note.joker{background:var(--bg);border:1px solid var(--accent)}
 .dot.pending{background:var(--empty);box-shadow:inset 0 0 0 1.5px var(--muted)}
 .legend{display:flex;flex-wrap:wrap;gap:14px;font-size:13px;color:var(--muted)}
 .legend span{display:inline-flex;gap:6px;align-items:center}
@@ -1182,7 +1189,7 @@ table.sum tr.inactive td{color:var(--muted)}
       {% for week in weeks %}{% for c in week %}
         <a class="cell{% if not c.in_month %} out{% endif %}{% if c.is_today %} today{% endif %}{% if not c.has_list %} nolink{% endif %}{% if c.total and c.done == c.total %} all{% endif %}"
            {% if c.has_list %}href="#d-{{ c.iso }}"{% endif %}
-           title="{% for s in c.states %}{{ s.name }}: {{ {'done':'kaydetti','metro':'metronomla kaydetti','missed':'kaydetmedi','pending':'bekleniyor'}[s.state] }}{% if not loop.last %}&#10;{% endif %}{% endfor %}">
+           title="{% for s in c.states %}{{ s.name }}: {{ {'done':'kaydetti','metro':'metronomla kaydetti','joker':'joker kullandı','missed':'kaydetmedi','pending':'bekleniyor'}[s.state] }}{% if not loop.last %}&#10;{% endif %}{% endfor %}">
           <span class="top"><span class="num">{{ c.date.day }}</span>{% if c.total %}<span class="cnt">{{ c.done }}/{{ c.total }}</span>{% endif %}</span>
           <span class="dots">{% for s in c.states %}<i class="dot {{ s.state }}"></i>{% endfor %}</span>
         </a>
@@ -1191,6 +1198,7 @@ table.sum tr.inactive td{color:var(--muted)}
     <div class="legend">
       <span><i class="dot done"></i>kaydetti</span>
       <span><i class="dot metro"></i>metronomla</span>
+      <span><i class="dot joker"></i>joker</span>
       <span><i class="dot missed"></i>kaydetmedi</span>
       <span><i class="dot pending"></i>bugün bekleniyor</span>
       <span>Bir güne dokun, o günün kayıtlarına git.</span>
@@ -1231,6 +1239,7 @@ table.sum tr.inactive td{color:var(--muted)}
         {% if r.listeners %}<div class="ears">👂 {{ r.listeners|join(', ') }} dinledi</div>{% endif %}
       </article>
       {% endfor %}
+      {% if d.jokers %}<div class="note joker">🃏 Joker: {{ d.jokers|join(', ') }}</div>{% endif %}
       {% if d.missed %}<div class="note miss">Kaydetmedi: {{ d.missed|join(', ') }}</div>{% endif %}
       {% if d.pending %}<div class="note pend">Bekleniyor: {{ d.pending|join(', ') }}</div>{% endif %}
     </div>

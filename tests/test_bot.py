@@ -350,3 +350,16 @@ def test_first_and_fifth_recording(env, plain_wav):
     assert any("Can</a> 5. kaydını attı!" in t for t in env.tg.sent())
     labels = [b["text"] for row in env.main.milestone_keyboard()["keyboard"] for b in row]
     assert "İlk kayıt" in labels and "5. kayıt" in labels
+
+
+def test_calendar_marks_joker_days(env, monkeypatch):
+    monkeypatch.setattr(env.main, "today", lambda: dt.date(2026, 9, 30))
+    join_all(env, EMRE)
+    env.fs.store["members"]["1"]["first_day"] = "2026-09-14"
+    for back in range(0, 17):
+        if back not in (8, 9):  # Tue 22nd and Mon 21st, same week
+            env.add_recording(1, back)
+    env.client.get("/?t=tok")
+    page = env.client.get("/?m=2026-09").data.decode()
+    assert page.count("🃏 Joker: Emre") == 1 and page.count("Kaydetmedi: Emre") == 1
+    assert 'class="dot joker"' in page

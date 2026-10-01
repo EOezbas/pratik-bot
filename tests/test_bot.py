@@ -331,3 +331,10 @@ def test_reaction_marks_listened(env, plain_wav):
 def test_webhook_subscribes_to_reactions(env):
     calls = [p for m, p in env.tg.calls if m == "setWebhook"]
     assert calls and "message_reaction" in calls[-1]["allowed_updates"]
+
+
+def test_milestones_31_and_69(env):
+    m = env.main
+    assert {31, 69} <= m.STREAK_MILESTONES and {31, 69} <= m.COUNT_MILESTONES
+    labels = [b["text"] for row in m.milestone_keyboard()["keyboard"] for b in row]
+    assert {"31 gün", "69 gün", "31. kayıt", "69. kayıt"} <= set(labels)

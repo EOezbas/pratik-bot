@@ -10,7 +10,7 @@ Arkadaş grubunun günlük müzik pratiği alışkanlığı için bir Telegram b
 - **Gün başlangıcı:** Gece 04:00'e kadar atılan kayıtlar önceki güne sayılır.
 - **Hatırlatma:** Her gün 21:00'de o gün kayıt atmayanlar grupta etiketlenir.
 - **Haftalık özet:** Pazar 21:30'da haftanın özeti ve "metronom ustası" gruba gönderilir.
-- **Kilometre taşları:** 7, 30, 50, 100, 200, 365 günlük serilerde ve 50, 100, 250, 500, 1000. kayıtta gruba kutlama mesajı gider.
+- **Kilometre taşları:** 7, 30, 31, 50, 69, 100, 200, 365 günlük serilerde ve 31, 50, 69, 100, 250, 500, 1000. kayıtta gruba kutlama mesajı gider.
 - **Kim dinledi:** Bir kayda Telegram'da tepki bırakan ya da takvimde kim olduğunu seçip kaydı oynatan kişi, takvimde kaydın altında "👂 ... dinledi" olarak görünür. Tepkileri görebilmesi için bot grupta yönetici olmalı.
 - **Kutlama sticker'ları:** Yönetici bota özelden sticker ya da GIF atar, çıkan butonlardan hangi kilometre taşı için olduğunu seçer. `/kutlamalar` atananları gösterir, birine yanıt verip `/sil` yazınca kaldırılır. Atanmamış kutlamalarda büyük animasyonlu emoji gider. Bunların hepsi sadece yöneticinin özel sohbetinde çalışır, grup göremez.
 - **Hata uyarısı:** Bota özelden `/yonetici` yazan ilk grup üyesi yönetici olur; bot bir mesajı gönderemezse ya da bir hata olursa ona özelden haber verir.

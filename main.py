@@ -30,7 +30,7 @@ API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 FILE_API = f"https://api.telegram.org/file/bot{BOT_TOKEN}"
 COOKIE = "pz"
 MAX_TG_BYTES = 20 * 1024 * 1024
-STREAK_EMOJI_MAX = 21
+HISTORY_DAYS = 21
 MEDIA_EXTS = {"ogg", "oga", "opus", "mp3", "m4a", "aac", "wav", "flac", "aif", "aiff", "wma",
               "mp4", "mov", "m4v", "webm", "mkv", "avi", "3gp"}
 
@@ -45,6 +45,17 @@ log = logging.getLogger("pratik")
 db = firestore.Client()
 bucket = storage.Client().bucket(BUCKET)
 app = Flask(__name__)
+
+BOT_COMMANDS = [
+    ("bugun", "Bugün kim kaydetti"),
+    ("seri", "Son 21 gün"),
+    ("detay", "Herkesin istatistikleri"),
+    ("takvim", "Tüm kayıtların takvimi"),
+    ("katil", "Gruba katıl"),
+    ("ayril", "Hatırlatmalardan çık"),
+    ("sil", "Kendi kaydına yanıt vererek sil"),
+    ("yardim", "Nasıl çalışır"),
+]
 
 
 # ---------- helpers ----------
@@ -72,6 +83,10 @@ def tg(method, **params):
     except Exception:
         log.exception("telegram %s error", method)
         return None
+
+
+def register_commands():
+    tg("setMyCommands", commands=[{"command": c, "description": d} for c, d in BOT_COMMANDS])
 
 
 def send(chat_id, text, reply_to=None):
@@ -174,13 +189,84 @@ def week_start(d):
     return d - dt.timedelta(days=d.weekday())
 
 
-def streak(day_set, ref_day):
-    d = ref_day if ref_day.isoformat() in day_set else ref_day - dt.timedelta(days=1)
-    n = 0
-    while d.isoformat() in day_set:
-        n += 1
-        d -= dt.timedelta(days=1)
-    return n
+def load_stats():
+    """Per user: recorded days, metronome days, total seconds, recording count."""
+    stats = {}
+    q = db.collection("recordings").select(["user_id", "day", "metronome", "duration"])
+    for s in q.stream():
+        d = s.to_dict()
+        st = stats.setdefault(str(d["user_id"]), {"days": set(), "metro": set(), "sec": 0, "count": 0})
+        st["days"].add(d["day"])
+        if d.get("metronome"):
+            st["metro"].add(d["day"])
+        st["sec"] += int(d.get("duration") or 0)
+        st["count"] += 1
+    return stats
+
+
+def empty_stats():
+    return {"days": set(), "metro": set(), "sec": 0, "count": 0}
+
+
+def history(member, st, t):
+    """Daily status from the member's first day to the last finished day.
+
+    Status per day: metro, done, joker (first miss of its Mon-Sun week) or missed.
+    Today counts only once it has a recording.
+    """
+    first_iso = member.get("first_day") or (min(st["days"]) if st["days"] else t.isoformat())
+    first = dt.date.fromisoformat(first_iso)
+    if st["days"]:
+        first = min(first, dt.date.fromisoformat(min(st["days"])))
+    end = t if t.isoformat() in st["days"] else t - dt.timedelta(days=1)
+    out, jokers = [], set()
+    d = first
+    while d <= end:
+        iso = d.isoformat()
+        if iso in st["metro"]:
+            status = "metro"
+        elif iso in st["days"]:
+            status = "done"
+        elif week_start(d) not in jokers:
+            jokers.add(week_start(d))
+            status = "joker"
+        else:
+            status = "missed"
+        out.append((d, status))
+        d += dt.timedelta(days=1)
+    return out
+
+
+def chain_stats(hist):
+    """Current and longest streak; joker days keep the chain but add nothing."""
+    longest = run = 0
+    for _, status in hist:
+        if status in ("metro", "done"):
+            run += 1
+        elif status == "missed":
+            run = 0
+        longest = max(longest, run)
+    return run, longest
+
+
+def joker_used_this_week(hist, t):
+    ws = week_start(t)
+    return any(status == "joker" and d >= ws for d, status in hist)
+
+
+MARK = {"metro": "🔥", "done": "❤", "joker": "🃏", "missed": "💔"}
+
+
+def fmt_total(sec):
+    h, m = divmod(int(sec) // 60, 60)
+    if h:
+        return f"{h} sa {m} dk"
+    if m:
+        return f"{m} dk"
+    return "<1 dk" if sec else "0 dk"
+
+
+register_commands()
 
 
 # ---------- telegram handling ----------
@@ -330,9 +416,11 @@ def handle_command(cmd, msg, user):
         send(chat_id,
              "Her gün pratikten kısa bir sesli mesaj, video ya da ses dosyası at, ben kaydedip ❤ koyarım.\n"
              "Metronomla çalışırsan (hoparlörden, kayıtta duyulacak şekilde) 🔥 alırsın.\n"
+             "Haftada 1 gün atlama hakkın var (🃏 joker), seri bozulmaz.\n"
              "Not eklemek için mesaja açıklama yaz ya da kendi kaydına yanıt ver.\n\n"
              "/bugun – bugün kim kaydetti\n"
-             "/seri – seriler ve bu ay\n"
+             "/seri – son 21 gün (🔥 metronomlu, ❤ kaydetti, 🃏 joker, 💔 atladı)\n"
+             "/detay – herkesin istatistikleri\n"
              "/takvim – tüm kayıtların takvimi\n"
              "/katil – kayıt atmadan gruba katıl\n"
              "/ayril – hatırlatmalardan çık\n"
@@ -353,25 +441,46 @@ def handle_command(cmd, msg, user):
         send(chat_id, "\n".join(lines) if members else "Henüz kimse yok.", mid)
     elif cmd == "/seri":
         members = [m for m in load_members() if m.get("active")]
-        days, metro = load_days(t - dt.timedelta(days=400), with_metro=True)
+        stats = load_stats()
         rows = []
         for m in members:
-            s, ms = days.get(m["id"], set()), metro.get(m["id"], set())
-            st = streak(s, t)
-            end = t if t.isoformat() in s else t - dt.timedelta(days=1)
-            marks = ["🔥" if (end - dt.timedelta(days=i)).isoformat() in ms else "❤"
-                     for i in range(st - 1, -1, -1)]
-            rows.append((st, m["name"], marks))
+            hist = history(m, stats.get(m["id"], empty_stats()), t)
+            cur, _ = chain_stats(hist)
+            marks = "".join(MARK[s] for _, s in hist[-HISTORY_DAYS:])
+            rows.append((cur, m["name"], marks or "–"))
         rows.sort(key=lambda r: (-r[0], r[1]))
         lines = ["⛓ <b>Seriler</b>"]
-        for st, name, marks in rows:
-            if not marks:
-                trail = "–"
-            elif len(marks) > STREAK_EMOJI_MAX:
-                trail = f"{st} gün · …" + "".join(marks[-STREAK_EMOJI_MAX:])
-            else:
-                trail = "".join(marks)
-            lines += ["", f"<b>{html.escape(name)}</b>", trail]
+        for _, name, marks in rows:
+            lines += ["", f"<b>{html.escape(name)}</b>", marks]
+        send(chat_id, "\n".join(lines) if rows else "Henüz kayıt yok.", mid)
+    elif cmd == "/detay":
+        members = [m for m in load_members() if m.get("active")]
+        stats = load_stats()
+        month_name = TR_MONTHS[t.month - 1]
+        month_first = t.replace(day=1)
+        rows = []
+        for m in members:
+            st = stats.get(m["id"], empty_stats())
+            hist = history(m, st, t)
+            cur, longest = chain_stats(hist)
+            start = max(month_first, dt.date.fromisoformat(m.get("first_day") or t.isoformat()))
+            if st["days"]:
+                start = max(month_first, min(start, dt.date.fromisoformat(min(st["days"]))))
+            span = (t - start).days + 1
+            month_done = sum(1 for d in st["days"] if month_first.isoformat() <= d <= t.isoformat())
+            month_metro = sum(1 for d in st["metro"] if month_first.isoformat() <= d <= t.isoformat())
+            joker = "kullanıldı" if joker_used_this_week(hist, t) else "duruyor"
+            rows.append((cur, m["name"], [
+                f"⛓ En uzun seri: {longest} gün · şu an {cur} gün",
+                f"🃏 Bu haftanın jokeri: {joker}",
+                f"📅 {month_name}: {month_done}/{span} gün",
+                f"🔥 Metronomlu: {month_metro} gün ({month_name}) · {len(st['metro'])} gün (toplam)",
+                f"⏱ Toplam kayıt: {fmt_total(st['sec'])} · {st['count']} kayıt",
+            ]))
+        rows.sort(key=lambda r: (-r[0], r[1]))
+        lines = ["📊 <b>Detay</b>"]
+        for _, name, detail in rows:
+            lines += ["", f"<b>{html.escape(name)}</b>"] + detail
         send(chat_id, "\n".join(lines) if rows else "Henüz kayıt yok.", mid)
     elif cmd == "/takvim":
         if PUBLIC_URL:
@@ -433,15 +542,19 @@ def cron_reminder():
     members = [m for m in load_members() if m.get("active")]
     if not members:
         return "no members"
-    days = load_days(t - dt.timedelta(days=400))
-    missing = [m for m in members if t.isoformat() not in days.get(m["id"], set())]
+    stats = load_stats()
+    missing = [m for m in members if t.isoformat() not in stats.get(m["id"], empty_stats())["days"]]
     if not missing:
         send(chat_id, "Bugün herkes kaydetti ❤")
         return "all done"
     lines = ["⏰ <b>Bugünün kaydı bekleniyor</b>"]
     for m in missing:
-        st = streak(days.get(m["id"], set()), t)
-        tail = f" – {st} günlük seri bozulmasın" if st else ""
+        hist = history(m, stats.get(m["id"], empty_stats()), t)
+        cur, _ = chain_stats(hist)
+        if joker_used_this_week(hist, t):
+            tail = f" – {cur} günlük seri bozulmasın, bu haftanın jokeri kullanıldı" if cur else ""
+        else:
+            tail = f" – {cur} günlük seri · 🃏 jokerin var" if cur else ""
         lines.append(f"• {mention(m['id'], m['name'])}{tail}")
     done_n = len(members) - len(missing)
     lines.append(f"\n{done_n}/{len(members)} kişi kaydetti.")
@@ -601,7 +714,9 @@ def calendar_page():
             })
         d -= dt.timedelta(days=1)
 
-    all_days, all_metro = load_days(t - dt.timedelta(days=400), with_metro=True)
+    all_stats = load_stats()
+    all_days = {uid: st["days"] for uid, st in all_stats.items()}
+    all_metro = {uid: st["metro"] for uid, st in all_stats.items()}
     summary = []
     for m in shown:
         s = all_days.get(m["id"], set())
@@ -613,7 +728,8 @@ def calendar_page():
                 missed += 1
             d += dt.timedelta(days=1)
         metro_month = sum(1 for x in all_metro.get(m["id"], set()) if first.isoformat() <= x <= last.isoformat())
-        summary.append({"name": m["name"], "streak": streak(s, t), "done": month_done, "missed": missed,
+        cur, _ = chain_stats(history(m, all_stats.get(m["id"], empty_stats()), t))
+        summary.append({"name": m["name"], "streak": cur, "done": month_done, "missed": missed,
                         "metro": metro_month,
                         "active": m.get("active")})
     summary.sort(key=lambda x: (-x["streak"], x["name"]))

@@ -42,7 +42,8 @@ Gruba **ilk mesaj** atıldığında bot o grubu kendine kaydeder ve sadece orada
 - **Not ekle:** Sesli mesaja açıklama yaz ya da kendi kaydına metinle yanıt ver.
 - `/katil`: Kayıt atmadan gruba katıl. İlk kayıtta zaten otomatik eklenirsin.
 - `/bugun`: Bugün kim kaydetti.
-- `/seri`: Seriler ve bu ay kaydedilen gün sayısı.
+- `/seri`: Son 21 gün: 🔥 metronomlu, ❤ kaydetti, 🃏 joker, 💔 atladı. Haftada atlanan ilk gün joker sayılır ve seriyi bozmaz.
+- `/detay`: Herkesin en uzun serisi, bu ayki günleri, metronomlu günleri ve toplam kayıt süresi.
 - `/takvim`: Takvim sayfasının linki. Linki açan tarayıcı bir yıl boyunca hatırlanır.
 - `/ayril`: Hatırlatmalardan çık.
 - `/sil`: Kendi kaydına yanıt olarak yazınca kayıt takvimden ve depodan silinir.

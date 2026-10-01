@@ -480,10 +480,10 @@ def save_recording(msg, user, media, kind):
         path = f"recordings/{day:%Y/%m/%d}/{user['id']}_{mid}.{ext}"
         bucket.blob(path).upload_from_string(r.content, content_type=mime)
         try:
-            has_metro, bpm, decoded_sec = metronome.detect(r.content)
+            has_metro, bpm, decoded_sec, tempo = metronome.analyze(r.content)
         except Exception:
             log.exception("metronome detection failed")
-            has_metro, bpm, decoded_sec = False, None, 0
+            has_metro, bpm, decoded_sec, tempo = False, None, 0, None
         ref.set({
             "user_id": str(user["id"]),
             "name": display_name(user),
@@ -497,6 +497,7 @@ def save_recording(msg, user, media, kind):
             "caption": msg.get("caption") or "",
             "metronome": has_metro,
             "bpm": bpm,
+            "tempo": tempo,
         })
     except Exception:
         log.exception("save failed")
@@ -978,7 +979,7 @@ def calendar_page():
                 "caption": r.get("caption", ""), "mime": r.get("mime", ""),
                 "video": (r.get("mime") or "").startswith("video/") or r.get("kind") in ("video_note", "video"),
                 "round": r.get("kind") == "video_note",
-                "metronome": bool(r.get("metronome")), "bpm": r.get("bpm"),
+                "metronome": bool(r.get("metronome")), "bpm": r.get("bpm"), "tempo": r.get("tempo"),
                 "listeners": [names.get(u, "") for u in (r.get("listeners") or [])
                               if u != r["user_id"] and names.get(u)],
             })
@@ -1129,6 +1130,7 @@ header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:fle
 .dot.done{background:var(--done)}
 .dot.metro{background:var(--gold);box-shadow:0 0 0 1.5px var(--gold-soft)}
 .bpm{font-family:var(--f-mono);font-size:12px;font-weight:500;color:var(--ink);background:var(--gold-soft);border:1px solid var(--gold);border-radius:999px;padding:1px 8px}
+.tempo{font-family:var(--f-mono);font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:1px 8px}
 .dot.missed{background:transparent;box-shadow:inset 0 0 0 2px var(--miss)}
 .dot.joker{background:transparent;box-shadow:inset 0 0 0 2px var(--accent)}
 .note.joker{background:var(--bg);border:1px solid var(--accent)}
@@ -1231,7 +1233,8 @@ table.sum tr.inactive td{color:var(--muted)}
       <article class="rec">
         <div class="head"><span class="who">{{ r.name }}</span>
           <span class="meta">{{ r.time }} · {{ r.duration }}</span>
-          {% if r.metronome %}<span class="bpm">🔥 ♩ {{ r.bpm }} bpm</span>{% endif %}
+          {% if r.metronome %}<span class="bpm">🔥 ♩ {{ r.bpm }} bpm</span>
+          {% elif r.tempo %}<span class="tempo" title="Metronomsuz, çalınan tempodan tahmin">♩ ~{{ r.tempo }} bpm</span>{% endif %}
           <a class="dl" href="/audio/{{ r.id }}?dl=1">İndir</a></div>
         {% if r.caption %}<div class="cap">{{ r.caption }}</div>{% endif %}
         {% if r.video %}<video controls preload="metadata" playsinline class="{{ 'round' if r.round }}" data-id="{{ r.id }}" src="/audio/{{ r.id }}#t=0.1"></video>

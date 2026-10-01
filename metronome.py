@@ -7,7 +7,7 @@ a fixed grid with very low timing error is taken as a metronome.
 import subprocess
 
 import numpy as np
-from scipy.signal import butter, find_peaks, sosfiltfilt
+from scipy.signal import butter, find_peaks, sosfiltfilt, stft
 
 SR = 16000
 HOP = 32  # 2 ms
@@ -146,3 +146,94 @@ def true_period(period: float, ks: np.ndarray, hit: np.ndarray) -> float:
         keep = (ks % 2 == 0) if even >= odd else (ks % 2 == 1)
         ks, hit, period = ks[keep] // 2, hit[keep], period * 2
     return period
+
+
+# ---------- tempo of the playing itself, for takes without a metronome ----------
+
+N_FFT, T_HOP = 1024, 160  # 10 ms frames
+FPS = SR / T_HOP
+T_MIN_BPM, T_MAX_BPM = 40, 220
+PRIOR_BPM, PRIOR_OCT = 100.0, 1.0
+
+
+def _onset_strength(x):
+    _, _, z = stft(x, fs=SR, nperseg=N_FFT, noverlap=N_FFT - T_HOP, boundary=None, padded=False)
+    mag = np.log1p(1000 * np.abs(z))
+    flux = np.maximum(np.diff(mag, axis=1), 0).sum(axis=0)
+    flux -= np.convolve(flux, np.ones(31) / 31, mode="same")  # remove slow loudness changes
+    return np.maximum(flux, 0)
+
+
+def _autocorr(env):
+    e = env - env.mean()
+    n = len(e)
+    f = np.fft.rfft(e, 2 * n)
+    ac = np.fft.irfft(f * np.conj(f))[:n]
+    return ac / (ac[0] + 1e-12)
+
+
+def _best_tempo(env):
+    ac = _autocorr(env)
+    lo, hi = int(FPS * 60 / T_MAX_BPM), min(int(FPS * 60 / T_MIN_BPM), len(ac) - 2)
+    if hi <= lo:
+        return None, 0.0
+    lags = np.arange(lo, hi + 1)
+    bpm = 60 * FPS / lags
+    prior = np.exp(-0.5 * (np.log2(bpm / PRIOR_BPM) / PRIOR_OCT) ** 2)
+    # Comb: a real beat period also lines up at its multiples
+    seg = np.zeros(len(lags))
+    for m, w in ((1, 1.0), (2, 0.5), (3, 0.33), (4, 0.25)):
+        idx = lags * m
+        ok = idx < len(ac)
+        seg[ok] += w * ac[idx[ok]]
+    seg /= 2.08
+    peaks, _ = find_peaks(seg)
+    if not len(peaks):
+        return None, 0.0
+    i = peaks[np.argmax(seg[peaks] * prior[peaks])]
+    # A peak at 2/3 or 3/2 of this period almost as strong means the meter is ambiguous
+    for ratio in (1.5, 2 / 3):
+        j = int(round(lags[i] * ratio)) - lo
+        if 0 <= j < len(seg) and seg[max(0, j - 1):j + 2].max() >= 0.97 * seg[i]:
+            return None, 0.0
+    # Parabolic interpolation for a sub-frame lag
+    if 0 < i < len(seg) - 1:
+        a, b, c = seg[i - 1], seg[i], seg[i + 1]
+        off = 0.5 * (a - c) / (a - 2 * b + c) if (a - 2 * b + c) != 0 else 0
+    else:
+        off = 0
+    lag = lags[i] + off
+    return 60 * FPS / lag, float(seg[i])
+
+
+def estimate_tempo(x):
+    """Estimated beat tempo of the playing, or None when it is not steady enough to tell."""
+    if len(x) < SR * 15:
+        return None
+    env = _onset_strength(x)
+    bpm, strength = _best_tempo(env)
+    if bpm is None:
+        return None
+    # The same tempo must hold in each part of the recording
+    n = len(env)
+    win = min(n, int(FPS * 16))
+    parts = []
+    starts = np.linspace(0, n - win, max(2, min(5, n // win + 1))).astype(int)
+    for s in starts:
+        parts.append(_best_tempo(env[s:s + win])[0])
+    # Parts may lock onto half or double the tempo; that still supports it
+    agree = [p for p in parts if p and abs(np.log2(p / bpm) - round(np.log2(p / bpm))) < 0.04]
+    ok = strength >= 0.12 and len(agree) >= max(2, int(0.75 * len(parts)))
+    return int(round(bpm)) if ok else None
+
+
+def analyze(data: bytes):
+    """Returns (has_metronome, metronome bpm, duration in seconds, estimated playing tempo)."""
+    has, bpm, duration = detect(data)
+    if has:
+        return has, bpm, duration, None
+    try:
+        tempo = estimate_tempo(decode(data))
+    except Exception:
+        tempo = None
+    return has, bpm, duration, tempo

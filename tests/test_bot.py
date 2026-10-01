@@ -1,6 +1,7 @@
 import datetime as dt
 import re
 
+import numpy as np
 import pytest
 
 from conftest import wav_bytes
@@ -363,3 +364,41 @@ def test_calendar_marks_joker_days(env, monkeypatch):
     page = env.client.get("/?m=2026-09").data.decode()
     assert page.count("🃏 Joker: Emre") == 1 and page.count("Kaydetmedi: Emre") == 1
     assert 'class="dot joker"' in page
+
+
+# ---------- tempo without metronome ----------
+
+def test_tempo_estimated_for_plain_take(env, plain_wav):
+    has, bpm, _, tempo = env.main.metronome.analyze(plain_wav)
+    assert not has and bpm is None and tempo == 80
+
+
+def test_no_tempo_when_metronome_present(env, metro_wav):
+    assert env.main.metronome.analyze(metro_wav)[3] is None
+
+
+def test_no_tempo_for_free_playing(env):
+    m = env.main.metronome
+    rng = np.random.default_rng(3)
+    sr = m.SR
+    y = np.zeros(sr * 40)
+    t = 0.3
+    while t < 39:
+        n = int(0.4 * sr)
+        tt = np.arange(n) / sr
+        note = np.sin(2 * np.pi * rng.choice([196, 247, 330]) * tt) * np.exp(-tt / 0.2)
+        i = int(t * sr)
+        y[i:i + n] += note[:len(y) - i]
+        t += rng.exponential(0.35) + 0.05
+    y += 0.005 * rng.standard_normal(len(y))
+    assert m.estimate_tempo((y / np.abs(y).max()).astype(np.float32)) is None
+
+
+def test_tempo_shown_in_calendar_but_not_counted(env, plain_wav):
+    join_all(env, EMRE)
+    env.voice(EMRE, plain_wav)
+    (rec,) = env.fs.store["recordings"].values()
+    assert rec["tempo"] == 80 and not rec["metronome"]
+    assert env.tg.reactions()[0][0]["emoji"] == "❤"
+    env.client.get("/?t=tok")
+    assert "♩ ~80 bpm" in env.client.get("/").data.decode()

@@ -54,10 +54,12 @@ fi
 
 ENV_VARS="BOT_TOKEN=$BOT_TOKEN,WEBHOOK_SECRET=$WEBHOOK_SECRET,CRON_SECRET=$CRON_SECRET,WEB_TOKEN=$WEB_TOKEN"
 ENV_VARS+=",BUCKET=$BUCKET,TZ_NAME=$TZ_NAME,DAY_START_HOUR=$DAY_START_HOUR,ALLOWED_CHAT_ID=$ALLOWED_CHAT_ID"
+# Optional: api_id/api_hash from my.telegram.org enable files above 20 MB
+ENV_VARS+=",TG_API_ID=${TG_API_ID:-},TG_API_HASH=${TG_API_HASH:-}"
 
 echo "== Cloud Run deploy"
 gcloud run deploy "$SERVICE" --source . --region "$REGION" --allow-unauthenticated \
-  --memory 512Mi --max-instances 2 --set-env-vars "$ENV_VARS"
+  --memory 2Gi --no-cpu-throttling --max-instances 2 --set-env-vars "$ENV_VARS"
 
 URL="$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')"
 gcloud run services update "$SERVICE" --region "$REGION" --update-env-vars "PUBLIC_URL=$URL" >/dev/null

@@ -566,3 +566,69 @@ def test_drifting_mechanical_metronome_detected(env):
 def test_loose_human_playing_not_metronome(env):
     m = env.main.metronome
     assert not any(m.detect(wav_bytes(seed=s, seconds=36))[0] for s in range(3))
+
+
+# ---------- files above 20 MB ----------
+
+def test_large_file_downloaded_compressed_and_saved(env, metro_wav, monkeypatch, tmp_path):
+    m = env.main
+    big_wav = metro_wav * 1  # analysis input; size is faked below
+    monkeypatch.setattr(m.bigfiles, "available", lambda: True)
+    monkeypatch.setattr(m, "run_in_background", lambda fn, *a: fn(*a))
+    calls = []
+
+    class FakeDownloader:
+        def download(self, chat_id, message_id, path):
+            calls.append((chat_id, message_id))
+            open(path, "wb").write(big_wav)
+            return path
+
+    monkeypatch.setattr(m, "downloader", lambda: FakeDownloader())
+    monkeypatch.setattr(m.bigfiles, "COMPRESS_ABOVE", 1000)
+    join_all(env, EMRE)
+    env.message(EMRE, document={"file_id": "d", "file_name": "take.wav", "mime_type": "audio/wav",
+                                "file_size": 300 * 1024 * 1024})
+    (rec,) = env.fs.store["recordings"].values()
+    assert calls and rec["mime"] == "audio/ogg" and rec["gcs_path"].endswith(".ogg")
+    assert rec["metronome"] and rec["bpm"] == 92
+    assert [r[0]["emoji"] for r in env.tg.reactions() if r] == ["👀", "🔥"]
+    assert not env.fs.store.get("processing")
+
+
+def test_large_file_failure_reports_and_cleans_up(env, monkeypatch):
+    m = env.main
+    monkeypatch.setattr(m.bigfiles, "available", lambda: True)
+    monkeypatch.setattr(m, "run_in_background", lambda fn, *a: fn(*a))
+
+    class Broken:
+        def download(self, *a):
+            raise RuntimeError("network")
+
+    monkeypatch.setattr(m, "downloader", lambda: Broken())
+    join_all(env, EMRE)
+    env.message(EMRE, video={"file_id": "v", "mime_type": "video/mp4", "file_size": 50 * 1024 * 1024})
+    assert not env.fs.store.get("recordings") and not env.fs.store.get("processing")
+    assert "büyük kaydı kaydedemedim" in env.tg.sent()[-1]
+
+
+def test_over_one_gb_rejected(env, monkeypatch):
+    monkeypatch.setattr(env.main.bigfiles, "available", lambda: True)
+    join_all(env, EMRE)
+    env.message(EMRE, video={"file_id": "v", "mime_type": "video/mp4", "file_size": 2 * 1024 ** 3})
+    assert "1 GB" in env.tg.sent()[-1]
+
+
+def test_compress_video_to_720p(env, metro_wav, tmp_path, monkeypatch):
+    import subprocess
+    src = tmp_path / "in.mp4"
+    wav = tmp_path / "a.wav"
+    wav.write_bytes(metro_wav)
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=1920x1080:r=30", "-i", str(wav),
+                    "-shortest", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "5", "-c:a", "aac", str(src)],
+                   check=True)
+    monkeypatch.setattr(env.main.bigfiles, "COMPRESS_ABOVE", 0)
+    path, mime, ext = env.main.bigfiles.compress(str(src), "video/mp4")
+    out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=height",
+                          "-of", "csv=p=0", path], capture_output=True, text=True).stdout.strip()
+    assert mime == "video/mp4" and int(out) == 720
+    assert env.main.metronome.analyze(open(path, "rb").read())[:2] == (True, 92)

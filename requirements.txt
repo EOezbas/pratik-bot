@@ -5,3 +5,5 @@ google-cloud-firestore==2.*
 google-cloud-storage==3.*
 numpy==2.*
 scipy==1.*
+telethon==1.*
+cryptg==0.*

@@ -4,7 +4,7 @@ Arkadaş grubunun günlük müzik pratiği alışkanlığı için bir Telegram b
 
 ## Özellikler
 
-- **Kayıt:** Sesli mesaj, yuvarlak video, normal video ve "Dosya" olarak gönderilen ses ya da video dosyaları kaydedilir (en fazla 20 MB). Bot kaydı ❤ ile işaretler.
+- **Kayıt:** Sesli mesaj, yuvarlak video, normal video ve "Dosya" olarak gönderilen ses ya da video dosyaları kaydedilir. Bot kaydı ❤ ile işaretler. 20 MB'tan büyük dosyalar (1 GB'a kadar) arka planda indirilir; bu sırada bot 👀 koyar. Videolar 720p'ye, sesler 160 kbps Opus'a küçültülerek saklanır. Bunun için `TG_API_ID` ve `TG_API_HASH` ayarlı olmalı.
 - **Metronom algılama:** Kayıtta duyulabilir bir metronom varsa bot 🔥 koyar ve BPM'i kaydeder. Mekanik metronomlar gibi biraz kayan tıklar da kabul edilir; bunun bedeli, çok düzenli çalan (zamanlama sapması ~10 ms altı) birinin metronomsuz kaydının da 🔥 alabilmesi. Metronomsuz kayıtlarda tempo çalınan notalardan tahmin edilir ve takvimde gri "♩ ~84 bpm" olarak gösterilir; tempo düzensizse (rubato, serbest çalım) gösterilmez. Tahmin bazen yarım ya da çift tempo bulabilir. Bu bilgi takibi etkilemez.
 - **Seri ve joker:** Haftada (Pazartesi–Pazar) atlanan ilk gün 🃏 joker sayılır ve seriyi bozmaz.
 - **Gün başlangıcı:** Gece 04:00'e kadar atılan kayıtlar önceki güne sayılır.
@@ -83,6 +83,7 @@ gcloud run services update pratik-bot --region europe-west3 --update-env-vars DE
 | `DAY_START_HOUR` | Günün başladığı saat (varsayılan 4) |
 | `TZ_NAME` | Saat dilimi (varsayılan Europe/Berlin) |
 | `ALLOWED_CHAT_ID` | Botu tek bir gruba kilitlemek için (isteğe bağlı) |
+| `TG_API_ID`, `TG_API_HASH` | my.telegram.org'dan; 20 MB üstü dosyalar için (isteğe bağlı) |
 | `PUBLIC_URL` | Takvim linki için servis adresi |
 
 Sıfırdan kurulum için [KURULUM.md](KURULUM.md) dosyasına bak.

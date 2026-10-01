@@ -7,6 +7,9 @@ import mimetypes
 import os
 import re
 import secrets
+import shutil
+import tempfile
+import threading
 import time
 from zoneinfo import ZoneInfo
 
@@ -16,6 +19,7 @@ from werkzeug.exceptions import HTTPException
 from google.cloud import firestore, storage
 from google.cloud.firestore_v1.base_query import FieldFilter
 
+import bigfiles
 import metronome
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
@@ -456,19 +460,7 @@ def find_media(msg):
     return None, None
 
 
-def save_recording(msg, user, media, kind):
-    chat_id = msg["chat"]["id"]
-    mid = msg["message_id"]
-    doc_id = f"{chat_id}_{mid}"
-    ref = db.collection("recordings").document(doc_id)
-    if ref.get().exists:
-        return
-
-    if (media.get("file_size") or 0) > MAX_TG_BYTES:
-        send(chat_id, "Bu dosya 20 MB’tan büyük, Telegram botların indirmesine izin vermiyor. "
-                      "Daha kısa ya da daha düşük kaliteli bir kayıt gönder.", mid)
-        return
-
+def media_type(media, kind):
     fname = (media.get("file_name") or "").lower()
     ext = {"voice": "ogg", "video_note": "mp4"}.get(kind)
     if not ext:
@@ -478,7 +470,19 @@ def save_recording(msg, user, media, kind):
         mime = mimetypes.guess_type(f"x.{ext}")[0] or ("video/mp4" if kind == "video" else "audio/mpeg")
     if not ext:
         ext = (mimetypes.guess_extension(mime) or ".bin").lstrip(".")
-    ext = re.sub(r"[^a-z0-9]", "", ext)[:5] or "bin"
+    return mime, re.sub(r"[^a-z0-9]", "", ext)[:5] or "bin"
+
+
+def save_recording(msg, user, media, kind):
+    chat_id = msg["chat"]["id"]
+    mid = msg["message_id"]
+    if db.collection("recordings").document(f"{chat_id}_{mid}").get().exists:
+        return
+    mime, ext = media_type(media, kind)
+
+    if (media.get("file_size") or 0) > MAX_TG_BYTES:
+        save_large_recording(msg, user, media, kind, mime, ext)
+        return
 
     info = tg("getFile", file_id=media["file_id"])
     if not info or not info.get("file_path"):
@@ -487,12 +491,87 @@ def save_recording(msg, user, media, kind):
     try:
         r = requests.get(f"{FILE_API}/{info['file_path']}", timeout=60)
         r.raise_for_status()
+    except Exception:
+        log.exception("download failed")
+        alert("save", "Bir kayıt indirilemedi, loglara bak.")
+        send(chat_id, "Bu kayıt kaydedilemedi. Lütfen tekrar gönder.", mid)
+        return
+    store_recording(msg, user, media, kind, r.content, mime, ext)
+
+
+def save_large_recording(msg, user, media, kind, mime, ext):
+    """Files above 20 MB come over MTProto in the background, shrunk before storing."""
+    chat_id = msg["chat"]["id"]
+    mid = msg["message_id"]
+    if not bigfiles.available():
+        send(chat_id, "Bu dosya 20 MB’tan büyük, Telegram botların indirmesine izin vermiyor. "
+                      "Daha kısa ya da daha düşük kaliteli bir kayıt gönder.", mid)
+        return
+    if (media.get("file_size") or 0) > bigfiles.MAX_BYTES:
+        send(chat_id, "Bu dosya 1 GB’tan büyük, kaydedemiyorum. Daha kısa bir kayıt gönder.", mid)
+        return
+    # Telegram may redeliver the update while the download runs
+    lock = db.collection("processing").document(f"{chat_id}_{mid}")
+    if lock.get().exists:
+        return
+    lock.set({"started": dt.datetime.now(TZ)})
+    tg("setMessageReaction", chat_id=chat_id, message_id=mid, reaction=[{"type": "emoji", "emoji": "👀"}])
+    run_in_background(process_large_recording, msg, user, media, kind, mime, ext)
+
+
+def run_in_background(fn, *args):
+    threading.Thread(target=fn, args=args, daemon=True).start()
+
+
+def process_large_recording(msg, user, media, kind, mime, ext):
+    chat_id = msg["chat"]["id"]
+    mid = msg["message_id"]
+    tmp = tempfile.mkdtemp()
+    try:
+        src = os.path.join(tmp, f"in.{ext}")
+        downloader().download(chat_id, mid, src)
+        small = bigfiles.compress(src, mime)
+        if small:
+            path, mime, ext = small
+        else:
+            path = src
+        with open(path, "rb") as f:
+            content = f.read()
+        store_recording(msg, user, media, kind, content, mime, ext)
+    except Exception:
+        log.exception("large download failed")
+        alert("large", "Büyük bir kayıt indirilemedi, loglara bak.")
+        tg("setMessageReaction", chat_id=chat_id, message_id=mid, reaction=[])
+        send(chat_id, "Bu büyük kaydı kaydedemedim. Biraz sonra tekrar gönder.", mid)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+        db.collection("processing").document(f"{chat_id}_{mid}").delete()
+
+
+_downloader = None
+
+
+def downloader():
+    global _downloader
+    if _downloader is None:
+        _downloader = bigfiles.Downloader(
+            BOT_TOKEN,
+            load_session=lambda: field(state_ref().get(), "mtproto_session"),
+            save_session=lambda s: state_ref().set({"mtproto_session": s}, merge=True))
+    return _downloader
+
+
+def store_recording(msg, user, media, kind, content, mime, ext):
+    chat_id = msg["chat"]["id"]
+    mid = msg["message_id"]
+    ref = db.collection("recordings").document(f"{chat_id}_{mid}")
+    try:
         ts = dt.datetime.fromtimestamp(msg["date"], TZ)
         day = practice_day(ts)
         path = f"recordings/{day:%Y/%m/%d}/{user['id']}_{mid}.{ext}"
-        bucket.blob(path).upload_from_string(r.content, content_type=mime)
+        bucket.blob(path).upload_from_string(content, content_type=mime)
         try:
-            has_metro, bpm, decoded_sec, tempo = metronome.analyze(r.content)
+            has_metro, bpm, decoded_sec, tempo = metronome.analyze(content)
         except Exception:
             log.exception("metronome detection failed")
             has_metro, bpm, decoded_sec, tempo = False, None, 0, None
@@ -502,7 +581,7 @@ def save_recording(msg, user, media, kind):
             "day": day.isoformat(),
             "ts": ts,
             "duration": int(media.get("duration") or decoded_sec or 0),
-            "size": len(r.content),
+            "size": len(content),
             "gcs_path": path,
             "mime": mime,
             "kind": kind,

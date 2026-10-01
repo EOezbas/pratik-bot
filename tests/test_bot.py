@@ -418,3 +418,11 @@ def test_reply_from_others_marks_listened(env, plain_wav):
     rec = env.fs.store["recordings"][rec_id]
     assert sorted(rec["listeners"]) == ["2", "3"] and rec["caption"] == "kendi notum"
     assert len(env.fs.store["recordings"]) == 2
+
+
+def test_gif_and_sticker_not_saved(env, plain_wav):
+    join_all(env, EMRE)
+    gif = {"file_id": "a", "file_unique_id": "ua", "mime_type": "video/mp4", "file_name": "funny.gif.mp4", "duration": 3}
+    env.message(EMRE, animation=gif, document=dict(gif))
+    env.message(EMRE, sticker={"file_id": "s", "file_unique_id": "us", "is_video": True})
+    assert not env.fs.store.get("recordings") and not env.tg.reactions()

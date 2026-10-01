@@ -440,6 +440,9 @@ def add_listener(chat_id, message_id, user_id):
 
 
 def find_media(msg):
+    # GIFs and stickers also arrive with a video document attached; they are not practice
+    if msg.get("animation") or msg.get("sticker"):
+        return None, None
     for k in ("voice", "audio", "video_note", "video"):
         if msg.get(k):
             return msg[k], k

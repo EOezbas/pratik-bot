@@ -30,6 +30,7 @@ API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 FILE_API = f"https://api.telegram.org/file/bot{BOT_TOKEN}"
 COOKIE = "pz"
 MAX_TG_BYTES = 20 * 1024 * 1024
+STREAK_EMOJI_MAX = 21
 MEDIA_EXTS = {"ogg", "oga", "opus", "mp3", "m4a", "aac", "wav", "flac", "aif", "aiff", "wma",
               "mp4", "mov", "m4v", "webm", "mkv", "avi", "3gp"}
 
@@ -353,17 +354,24 @@ def handle_command(cmd, msg, user):
     elif cmd == "/seri":
         members = [m for m in load_members() if m.get("active")]
         days, metro = load_days(t - dt.timedelta(days=400), with_metro=True)
-        month_prefix = t.strftime("%Y-%m")
-        ws = week_start(t).isoformat()
         rows = []
         for m in members:
-            s = days.get(m["id"], set())
-            w = sum(1 for d in metro.get(m["id"], set()) if d >= ws)
-            rows.append((streak(s, t), sum(1 for d in s if d.startswith(month_prefix)), w, m["name"]))
-        rows.sort(reverse=True)
-        lines = ["<b>Seriler</b>", f"⛓ seri · 📅 {TR_MONTHS[t.month - 1]} ayında gün · 🔥 bu hafta metronomlu gün", ""]
-        for st, cnt, w, name in rows:
-            lines.append(f"⛓ {st} · 📅 {cnt} · 🔥 {w}   {html.escape(name)}")
+            s, ms = days.get(m["id"], set()), metro.get(m["id"], set())
+            st = streak(s, t)
+            end = t if t.isoformat() in s else t - dt.timedelta(days=1)
+            marks = ["🔥" if (end - dt.timedelta(days=i)).isoformat() in ms else "❤"
+                     for i in range(st - 1, -1, -1)]
+            rows.append((st, m["name"], marks))
+        rows.sort(key=lambda r: (-r[0], r[1]))
+        lines = ["⛓ <b>Seriler</b>"]
+        for st, name, marks in rows:
+            if not marks:
+                trail = "–"
+            elif len(marks) > STREAK_EMOJI_MAX:
+                trail = f"{st} gün · …" + "".join(marks[-STREAK_EMOJI_MAX:])
+            else:
+                trail = "".join(marks)
+            lines += ["", f"<b>{html.escape(name)}</b>", trail]
         send(chat_id, "\n".join(lines) if rows else "Henüz kayıt yok.", mid)
     elif cmd == "/takvim":
         if PUBLIC_URL:

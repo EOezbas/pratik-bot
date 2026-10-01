@@ -335,9 +335,9 @@ def test_webhook_subscribes_to_reactions(env):
 
 def test_milestones_31_and_69(env):
     m = env.main
-    assert {31, 69} <= m.STREAK_MILESTONES and {31, 69} <= m.COUNT_MILESTONES
+    assert not {31, 69} & m.STREAK_MILESTONES and {31, 69} <= m.COUNT_MILESTONES
     labels = [b["text"] for row in m.milestone_keyboard()["keyboard"] for b in row]
-    assert {"31 gün", "69 gün", "31. kayıt", "69. kayıt"} <= set(labels)
+    assert {"31. kayıt", "69. kayıt"} <= set(labels) and not {"31 gün", "69 gün"} & set(labels)
 
 
 def test_first_and_fifth_recording(env, plain_wav):

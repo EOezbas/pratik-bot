@@ -632,3 +632,16 @@ def test_compress_video_to_720p(env, metro_wav, tmp_path, monkeypatch):
                           "-of", "csv=p=0", path], capture_output=True, text=True).stdout.strip()
     assert mime == "video/mp4" and int(out) == 720
     assert env.main.metronome.analyze(open(path, "rb").read())[:2] == (True, 92)
+
+
+def test_file_name_shown_in_calendar(env, plain_wav):
+    join_all(env, EMRE)
+    env.tg.next_file = plain_wav
+    env.message(EMRE, document={"file_id": "d", "file_name": "time_solo.mp3", "mime_type": "audio/mpeg",
+                                "file_size": len(plain_wav)})
+    env.voice(EMRE, plain_wav)
+    names = sorted(r["file_name"] for r in env.fs.store["recordings"].values())
+    assert names == ["", "time_solo.mp3"]
+    env.client.get("/?t=tok")
+    page = env.client.get("/").data.decode()
+    assert page.count("📄 time_solo.mp3") == 1 and page.count('class="fname"') == 1

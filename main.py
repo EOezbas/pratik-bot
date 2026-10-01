@@ -586,6 +586,7 @@ def store_recording(msg, user, media, kind, content, mime, ext):
             "mime": mime,
             "kind": kind,
             "caption": msg.get("caption") or "",
+            "file_name": media.get("file_name") or "",
             "metronome": has_metro,
             "bpm": bpm,
             "tempo": tempo,
@@ -1074,6 +1075,7 @@ def calendar_page():
                 "time": r["ts"].astimezone(TZ).strftime("%H:%M"),
                 "duration": fmt_duration(r.get("duration")),
                 "caption": r.get("caption", ""), "mime": r.get("mime", ""),
+                "file_name": r.get("file_name", ""),
                 "video": (r.get("mime") or "").startswith("video/") or r.get("kind") in ("video_note", "video"),
                 "round": r.get("kind") == "video_note",
                 "metronome": bool(r.get("metronome")), "bpm": r.get("bpm"), "tempo": r.get("tempo"),
@@ -1249,6 +1251,7 @@ table.sum tr.inactive td{color:var(--muted)}
 .rec .who{font-weight:600}
 .rec .meta{font-family:var(--f-mono);font-size:12px;color:var(--muted)}
 .rec .dl{margin-left:auto;font-size:13px}
+.rec .fname{font-family:var(--f-mono);font-size:12.5px;color:var(--muted);overflow-wrap:anywhere}
 .rec .cap{white-space:pre-wrap;overflow-wrap:anywhere}
 .rec audio,.rec video{width:100%;max-width:100%}
 .rec video{border-radius:8px;max-height:70vh;background:#000}
@@ -1333,6 +1336,7 @@ table.sum tr.inactive td{color:var(--muted)}
           {% if r.metronome %}<span class="bpm">🔥 ♩ {{ r.bpm }} bpm</span>
           {% elif r.tempo %}<span class="tempo" title="Metronomsuz, çalınan tempodan tahmin">♩ ~{{ r.tempo }} bpm</span>{% endif %}
           <a class="dl" href="/audio/{{ r.id }}?dl=1">İndir</a></div>
+        {% if r.file_name %}<div class="fname">📄 {{ r.file_name }}</div>{% endif %}
         {% if r.caption %}<div class="cap">{{ r.caption }}</div>{% endif %}
         {% if r.video %}<video controls preload="metadata" playsinline class="{{ 'round' if r.round }}" data-id="{{ r.id }}" src="/audio/{{ r.id }}#t=0.1"></video>
         {% else %}<audio controls preload="none" data-id="{{ r.id }}" src="/audio/{{ r.id }}"></audio>{% endif %}

@@ -12,7 +12,7 @@ Arkadaş grubunun günlük müzik pratiği alışkanlığı için bir Telegram b
 - **Haftalık özet:** Pazar 21:30'da haftanın özeti ve "metronom ustası" gruba gönderilir.
 - **Kilometre taşları:** 7, 30, 50, 100, 200, 365 günlük serilerde ve 50, 100, 250, 500, 1000. kayıtta gruba kutlama mesajı gider.
 - **Kim dinledi:** Takvimde kim olduğunu bir kere seçen kişinin dinlediği kayıtların altında "👂 ... dinledi" görünür.
-- **Kutlama sticker'ları:** Yönetici bota özelden sticker ya da GIF atınca kutlama listesine eklenir; kutlamalarda aralarından rastgele biri gider. `/kutlamalar` listeyi gösterir, birine yanıt verip `/sil` yazınca silinir. Liste boşsa büyük animasyonlu 🎉 gider.
+- **Kutlama sticker'ları:** Yönetici bota özelden sticker ya da GIF atar, çıkan butonlardan hangi kilometre taşı için olduğunu seçer. `/kutlamalar` atananları gösterir, birine yanıt verip `/sil` yazınca kaldırılır. Atanmamış kutlamalarda büyük animasyonlu emoji gider. Bunların hepsi sadece yöneticinin özel sohbetinde çalışır, grup göremez.
 - **Hata uyarısı:** Bota özelden `/yonetici` yazan ilk grup üyesi yönetici olur; bot bir mesajı gönderemezse ya da bir hata olursa ona özelden haber verir.
 - **Takvim:** Ay görünümü, kişi bazında kaydetti, metronomla kaydetti veya kaçırdı bilgisi, gün gün kayıtlar; kayıtlar dinlenebilir ve indirilebilir.
 

@@ -36,7 +36,7 @@ WHO_COOKIE = "pz_who"
 ALERT_INTERVAL_SEC = 600
 TOKEN_CACHE_SEC = 30
 STREAK_MILESTONES = {7, 30, 31, 50, 69, 100, 200, 365}
-COUNT_MILESTONES = {31, 50, 69, 100, 250, 500, 1000}
+COUNT_MILESTONES = {1, 5, 31, 50, 69, 100, 250, 500, 1000}
 MAX_TG_BYTES = 20 * 1024 * 1024
 HISTORY_DAYS = 21
 MEDIA_EXTS = {"ogg", "oga", "opus", "mp3", "m4a", "aac", "wav", "flac", "aif", "aiff", "wma",
@@ -536,7 +536,8 @@ def check_milestones(chat_id, user):
         key = f"count{st['count']}"
         if key not in reached:
             new_keys.append(key)
-            lines.append(f"🎉 {mention(uid, member.get('name', ''))} {st['count']}. kaydını attı!")
+            nth = "ilk" if st["count"] == 1 else f"{st['count']}."
+            lines.append(f"🎉 {mention(uid, member.get('name', ''))} {nth} kaydını attı!")
             if cel_key is None:
                 cel_key, emoji = f"count{st['count']}", "🎊"
     if new_keys:
@@ -663,7 +664,7 @@ def delete_recording(msg, user):
     send(chat_id, "🗑 Kayıt takvimden ve depodan silindi. Telegram'daki mesajı istersen kendin silebilirsin.", mid)
 
 MILESTONE_LABELS = [(f"streak{n}", f"{n} gün") for n in sorted(STREAK_MILESTONES)] + \
-                   [(f"count{n}", f"{n}. kayıt") for n in sorted(COUNT_MILESTONES)]
+                   [(f"count{n}", "İlk kayıt" if n == 1 else f"{n}. kayıt") for n in sorted(COUNT_MILESTONES)]
 LABEL_TO_KEY = {label: key for key, label in MILESTONE_LABELS}
 
 

@@ -338,3 +338,15 @@ def test_milestones_31_and_69(env):
     assert {31, 69} <= m.STREAK_MILESTONES and {31, 69} <= m.COUNT_MILESTONES
     labels = [b["text"] for row in m.milestone_keyboard()["keyboard"] for b in row]
     assert {"31 gün", "69 gün", "31. kayıt", "69. kayıt"} <= set(labels)
+
+
+def test_first_and_fifth_recording(env, plain_wav):
+    join_all(env, CAN)
+    env.voice(CAN, plain_wav)
+    assert any("Can</a> ilk kaydını attı!" in t for t in env.tg.sent())
+    for back in range(1, 4):
+        env.add_recording(2, back)
+    env.voice(CAN, plain_wav)
+    assert any("Can</a> 5. kaydını attı!" in t for t in env.tg.sent())
+    labels = [b["text"] for row in env.main.milestone_keyboard()["keyboard"] for b in row]
+    assert "İlk kayıt" in labels and "5. kayıt" in labels

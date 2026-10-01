@@ -402,3 +402,19 @@ def test_tempo_shown_in_calendar_but_not_counted(env, plain_wav):
     assert env.tg.reactions()[0][0]["emoji"] == "❤"
     env.client.get("/?t=tok")
     assert "♩ ~80 bpm" in env.client.get("/").data.decode()
+
+
+def test_reply_from_others_marks_listened(env, plain_wav):
+    join_all(env, EMRE, CAN, DENIZ)
+    vid = env.voice(EMRE, plain_wav)
+    rec_id = f"-1001_{vid}"
+    target = {"message_id": vid, "from": EMRE, "voice": {"file_id": "f"}}
+    env.message(EMRE, text="kendi notum", reply_to_message=target)
+    env.command(DENIZ, "/sil", reply_to_message=target)
+    assert "listeners" not in env.fs.store["recordings"][rec_id]
+    env.message(CAN, text="çok iyi olmuş", reply_to_message=target)
+    env.tg.next_file = plain_wav
+    env.message(DENIZ, voice={"file_id": "g", "duration": 20}, reply_to_message=target)
+    rec = env.fs.store["recordings"][rec_id]
+    assert sorted(rec["listeners"]) == ["2", "3"] and rec["caption"] == "kendi notum"
+    assert len(env.fs.store["recordings"]) == 2

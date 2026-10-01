@@ -390,6 +390,11 @@ def handle_update(upd):
     if not user or user.get("is_bot"):
         return
 
+    # Replying to someone else's recording counts as having listened
+    rep = msg.get("reply_to_message")
+    if rep and not (msg.get("text") or "").strip().startswith("/"):
+        add_listener(chat["id"], rep["message_id"], user["id"])
+
     media, kind = find_media(msg)
 
     if media:
@@ -423,9 +428,13 @@ def handle_reaction(r):
     chat_id = str((r.get("chat") or {}).get("id"))
     if not user or user.get("is_bot") or not r.get("new_reaction") or chat_id != get_chat_id():
         return
-    ref = db.collection("recordings").document(f'{chat_id}_{r["message_id"]}')
+    add_listener(chat_id, r["message_id"], user["id"])
+
+
+def add_listener(chat_id, message_id, user_id):
+    ref = db.collection("recordings").document(f"{chat_id}_{message_id}")
     snap = ref.get()
-    uid = str(user["id"])
+    uid = str(user_id)
     if snap.exists and field(snap, "user_id") != uid:
         ref.update({"listeners": firestore.ArrayUnion([uid])})
 

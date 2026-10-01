@@ -1,0 +1,5 @@
+.secrets.env
+.gcloudignore
+deploy.sh
+KURULUM.md
+__pycache__/

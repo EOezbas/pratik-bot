@@ -6,10 +6,13 @@ import logging
 import mimetypes
 import os
 import re
+import secrets
+import time
 from zoneinfo import ZoneInfo
 
 import requests
 from flask import Flask, Response, abort, make_response, redirect, render_template_string, request
+from werkzeug.exceptions import HTTPException
 from google.cloud import firestore, storage
 from google.cloud.firestore_v1.base_query import FieldFilter
 
@@ -29,6 +32,11 @@ DAY_START_HOUR = int(os.environ.get("DAY_START_HOUR", "4"))
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 FILE_API = f"https://api.telegram.org/file/bot{BOT_TOKEN}"
 COOKIE = "pz"
+WHO_COOKIE = "pz_who"
+ALERT_INTERVAL_SEC = 600
+TOKEN_CACHE_SEC = 30
+STREAK_MILESTONES = {7, 30, 50, 100, 200, 365}
+COUNT_MILESTONES = {50, 100, 250, 500, 1000}
 MAX_TG_BYTES = 20 * 1024 * 1024
 HISTORY_DAYS = 21
 MEDIA_EXTS = {"ogg", "oga", "opus", "mp3", "m4a", "aac", "wav", "flac", "aif", "aiff", "wma",
@@ -54,6 +62,7 @@ BOT_COMMANDS = [
     ("katil", "Gruba katıl"),
     ("ayril", "Hatırlatmalardan çık"),
     ("sil", "Kendi kaydına yanıt vererek sil"),
+    ("yenilink", "Takvim linkini yenile"),
     ("yardim", "Nasıl çalışır"),
 ]
 
@@ -72,16 +81,40 @@ def today():
     return practice_day(now_local())
 
 
+# Failures of these calls are harmless and not worth an alert
+QUIET_METHODS = {"setMessageReaction", "setMyCommands"}
+_last_alert = {}
+
+
+def alert(key, text):
+    """Sends a rate-limited private message to the admin; never raises."""
+    now = time.time()
+    if now - _last_alert.get(key, 0) < ALERT_INTERVAL_SEC:
+        return
+    _last_alert[key] = now
+    try:
+        admin = get_admin_id()
+        if admin:
+            requests.post(f"{API}/sendMessage", timeout=15,
+                          json={"chat_id": admin, "text": f"⚠️ Pratik botu: {text}"[:4000]})
+    except Exception:
+        log.exception("alert failed")
+
+
 def tg(method, **params):
     try:
         r = requests.post(f"{API}/{method}", json=params, timeout=30)
         data = r.json()
         if not data.get("ok"):
             log.warning("telegram %s failed: %s", method, data)
+            if method not in QUIET_METHODS:
+                alert(f"tg:{method}", f"{method} başarısız: {data.get('description', data)}")
             return None
         return data["result"]
-    except Exception:
+    except Exception as e:
         log.exception("telegram %s error", method)
+        if method not in QUIET_METHODS:
+            alert(f"tg:{method}", f"{method} hatası: {e!r}")
         return None
 
 
@@ -120,6 +153,29 @@ def tr_date(d, with_weekday=True):
 
 def state_ref():
     return db.collection("config").document("state")
+
+
+def get_admin_id():
+    snap = state_ref().get()
+    return snap.get("admin_id") if snap.exists else None
+
+
+_token_cache = {"value": None, "at": 0.0}
+
+
+def web_token():
+    if time.time() - _token_cache["at"] > TOKEN_CACHE_SEC:
+        snap = state_ref().get()
+        stored = snap.get("web_token") if snap.exists else None
+        _token_cache.update(value=stored or WEB_TOKEN, at=time.time())
+    return _token_cache["value"]
+
+
+def rotate_web_token():
+    new = secrets.token_hex(16)
+    state_ref().set({"web_token": new}, merge=True)
+    _token_cache.update(value=new, at=time.time())
+    return new
 
 
 def get_chat_id():
@@ -254,6 +310,16 @@ def joker_used_this_week(hist, t):
     return any(status == "joker" and d >= ws for d, status in hist)
 
 
+def current_chain_start(hist):
+    start = None
+    for d, status in hist:
+        if status == "missed":
+            start = None
+        elif status in ("metro", "done") and start is None:
+            start = d
+    return start
+
+
 MARK = {"metro": "🔥", "done": "❤", "joker": "🃏", "missed": "💔"}
 
 
@@ -288,9 +354,10 @@ def handle_update(upd):
     if msg.get("migrate_to_chat_id") and not ALLOWED_CHAT_ID:
         state_ref().set({"chat_id": str(msg["migrate_to_chat_id"])}, merge=True)
         return
+    if chat.get("type") == "private":
+        handle_private(msg)
+        return
     if not accept_chat(chat):
-        if chat.get("type") == "private" and (msg.get("text") or "").startswith("/"):
-            send(chat["id"], "Bu bot sadece pratik grubunda çalışıyor.")
         return
 
     for u in msg.get("new_chat_members", []):
@@ -401,10 +468,43 @@ def save_recording(msg, user, media, kind):
         })
     except Exception:
         log.exception("save failed")
+        alert("save", "Bir kayıt kaydedilemedi, loglara bak.")
         send(chat_id, "Bu kayıt kaydedilemedi. Lütfen tekrar gönder.", mid)
         return
     tg("setMessageReaction", chat_id=chat_id, message_id=mid,
        reaction=[{"type": "emoji", "emoji": "🔥" if has_metro else "❤"}])
+    try:
+        check_milestones(chat_id, user)
+    except Exception:
+        log.exception("milestone check failed")
+
+
+def check_milestones(chat_id, user):
+    uid = str(user["id"])
+    ref = db.collection("members").document(uid)
+    snap = ref.get()
+    if not snap.exists:
+        return
+    member = snap.to_dict()
+    st = load_stats().get(uid, empty_stats())
+    hist = history(member, st, today())
+    cur, _ = chain_stats(hist)
+    reached = set(member.get("milestones") or [])
+    new_keys, lines = [], []
+    start = current_chain_start(hist)
+    if cur in STREAK_MILESTONES and start:
+        key = f"streak{cur}:{start.isoformat()}"
+        if key not in reached:
+            new_keys.append(key)
+            lines.append(f"🎉 {mention(uid, member.get('name', ''))} {cur} günlük seriye ulaştı! ⛓")
+    if st["count"] in COUNT_MILESTONES:
+        key = f"count{st['count']}"
+        if key not in reached:
+            new_keys.append(key)
+            lines.append(f"🎉 {mention(uid, member.get('name', ''))} {st['count']}. kaydını attı!")
+    if new_keys:
+        ref.set({"milestones": sorted(reached | set(new_keys))}, merge=True)
+        send(chat_id, "\n".join(lines))
 
 
 def handle_command(cmd, msg, user):
@@ -424,7 +524,8 @@ def handle_command(cmd, msg, user):
              "/takvim – tüm kayıtların takvimi\n"
              "/katil – kayıt atmadan gruba katıl\n"
              "/ayril – hatırlatmalardan çık\n"
-             "/sil – kendi kaydına yanıt olarak yaz, kayıt silinir", mid)
+             "/sil – kendi kaydına yanıt olarak yaz, kayıt silinir\n"
+             "/yenilink – takvim linki grup dışına çıktıysa yenisini oluştur", mid)
     elif cmd == "/katil":
         upsert_member(user)
         send(chat_id, f"{mention(user['id'], display_name(user))} katıldı.", mid)
@@ -449,10 +550,10 @@ def handle_command(cmd, msg, user):
             marks = "".join(MARK[s] for _, s in hist[-HISTORY_DAYS:])
             rows.append((cur, m["name"], marks or "–"))
         rows.sort(key=lambda r: (-r[0], r[1]))
-        lines = ["⛓ <b>Seriler</b>"]
+        lines = []
         for _, name, marks in rows:
-            lines += ["", f"<b>{html.escape(name)}</b>", marks]
-        send(chat_id, "\n".join(lines) if rows else "Henüz kayıt yok.", mid)
+            lines += [f"<b>{html.escape(name)}</b>", marks, ""]
+        send(chat_id, "\n".join(lines).strip() if rows else "Henüz kayıt yok.", mid)
     elif cmd == "/detay":
         members = [m for m in load_members() if m.get("active")]
         stats = load_stats()
@@ -475,7 +576,7 @@ def handle_command(cmd, msg, user):
                 f"🃏 Bu haftanın jokeri: {joker}",
                 f"📅 {month_name}: {month_done}/{span} gün",
                 f"🔥 Metronomlu: {month_metro} gün ({month_name}) · {len(st['metro'])} gün (toplam)",
-                f"⏱ Toplam kayıt: {fmt_total(st['sec'])} · {st['count']} kayıt",
+                f"⏱ Toplam kayıt: {html.escape(fmt_total(st['sec']))} · {st['count']} kayıt",
             ]))
         rows.sort(key=lambda r: (-r[0], r[1]))
         lines = ["📊 <b>Detay</b>"]
@@ -484,9 +585,13 @@ def handle_command(cmd, msg, user):
         send(chat_id, "\n".join(lines) if rows else "Henüz kayıt yok.", mid)
     elif cmd == "/takvim":
         if PUBLIC_URL:
-            send(chat_id, f"Takvim: {PUBLIC_URL}/?t={WEB_TOKEN}", mid)
+            send(chat_id, f"Takvim: {PUBLIC_URL}/?t={web_token()}", mid)
         else:
             send(chat_id, "Takvim adresi henüz ayarlanmadı.", mid)
+    elif cmd == "/yenilink":
+        new = rotate_web_token()
+        send(chat_id, "🔑 Takvim linki yenilendi, eski link artık çalışmıyor.\n"
+                      f"Yeni link: {PUBLIC_URL}/?t={new}", mid)
     elif cmd == "/sil":
         delete_recording(msg, user)
 
@@ -519,6 +624,36 @@ def delete_recording(msg, user):
     tg("setMessageReaction", chat_id=chat_id, message_id=rep["message_id"], reaction=[])
     send(chat_id, "🗑 Kayıt takvimden ve depodan silindi. Telegram'daki mesajı istersen kendin silebilirsin.", mid)
 
+def handle_private(msg):
+    chat_id = msg["chat"]["id"]
+    user = msg.get("from") or {}
+    text = (msg.get("text") or "").strip().lower()
+    cmd = text.split()[0].split("@")[0] if text else ""
+    cmd = cmd.replace("ö", "o").replace("ı", "i")
+    if cmd != "/yonetici":
+        send(chat_id, "Bu bot sadece pratik grubunda çalışıyor.")
+        return
+    admin = get_admin_id()
+    if admin and str(admin) == str(user.get("id")):
+        send(chat_id, "Zaten yöneticisin, hata uyarıları sana geliyor.")
+    elif admin:
+        send(chat_id, "Yönetici zaten ayarlı.")
+    elif not db.collection("members").document(str(user.get("id"))).get().exists:
+        send(chat_id, "Önce grupta kayıt at ya da /katil yaz.")
+    else:
+        state_ref().set({"admin_id": str(user["id"])}, merge=True)
+        send(chat_id, "Tamam, botta bir sorun olursa sana buradan haber vereceğim.")
+
+
+@app.errorhandler(Exception)
+def on_error(e):
+    if isinstance(e, HTTPException):
+        return e
+    log.exception("request failed")
+    alert(f"http:{request.path}", f"{request.method} {request.path} hatası: {e!r}")
+    return Response("Bir hata oluştu.", status=500, mimetype="text/plain; charset=utf-8")
+
+
 @app.post("/telegram")
 def telegram_webhook():
     got = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
@@ -528,6 +663,7 @@ def telegram_webhook():
         handle_update(request.get_json(silent=True) or {})
     except Exception:
         log.exception("update failed")
+        alert("update", "Bir Telegram mesajı işlenirken hata oluştu, loglara bak.")
     return "ok"
 
 
@@ -603,16 +739,16 @@ def cron_weekly():
 # ---------- web calendar ----------
 
 def authed():
-    return hmac.compare_digest(request.cookies.get(COOKIE, ""), WEB_TOKEN)
+    return hmac.compare_digest(request.cookies.get(COOKIE, ""), web_token())
 
 
 def require_auth():
     t = request.args.get("t")
-    if t and hmac.compare_digest(t, WEB_TOKEN):
+    if t and hmac.compare_digest(t, web_token()):
         args = {k: v for k, v in request.args.items() if k != "t"}
         target = request.path + ("?" + "&".join(f"{k}={v}" for k, v in args.items()) if args else "")
         resp = make_response(redirect(target))
-        resp.set_cookie(COOKIE, WEB_TOKEN, max_age=365 * 86400, httponly=True,
+        resp.set_cookie(COOKIE, web_token(), max_age=365 * 86400, httponly=True,
                         secure=True, samesite="Lax")
         return resp
     if not authed():
@@ -705,6 +841,8 @@ def calendar_page():
                 "video": (r.get("mime") or "").startswith("video/") or r.get("kind") in ("video_note", "video"),
                 "round": r.get("kind") == "video_note",
                 "metronome": bool(r.get("metronome")), "bpm": r.get("bpm"),
+                "listeners": [names.get(u, "") for u in (r.get("listeners") or [])
+                              if u != r["user_id"] and names.get(u)],
             })
         if items or sts:
             days.append({
@@ -741,7 +879,39 @@ def calendar_page():
     return render_template_string(
         PAGE, month_label=f"{TR_MONTHS[first.month - 1]} {first.year}", weeks=weeks,
         weekday_labels=TR_DAYS_SHORT, days=days, summary=summary, prev_m=prev_m, next_m=next_m,
-        today_label=tr_date(t), rec_count=len(recs))
+        today_label=tr_date(t), rec_count=len(recs),
+        who=current_who(names), people=[{"id": m["id"], "name": m["name"]} for m in members if m.get("active")])
+
+
+def current_who(names):
+    uid = request.cookies.get(WHO_COOKIE, "")
+    return {"id": uid, "name": names[uid]} if uid in names else None
+
+
+@app.get("/ben/<uid>")
+def set_who(uid):
+    if not authed():
+        abort(403)
+    resp = make_response(redirect("/"))
+    if db.collection("members").document(uid).get().exists:
+        resp.set_cookie(WHO_COOKIE, uid, max_age=365 * 86400, httponly=True, secure=True, samesite="Lax")
+    else:
+        resp.delete_cookie(WHO_COOKIE)
+    return resp
+
+
+@app.post("/dinle/<doc_id>")
+def mark_listened(doc_id):
+    if not authed():
+        abort(403)
+    uid = request.cookies.get(WHO_COOKIE, "")
+    if not uid or not db.collection("members").document(uid).get().exists:
+        return "", 204
+    ref = db.collection("recordings").document(doc_id)
+    snap = ref.get()
+    if snap.exists and snap.get("user_id") != uid:
+        ref.update({"listeners": firestore.ArrayUnion([uid])})
+    return "", 204
 
 
 @app.get("/audio/<doc_id>")
@@ -793,6 +963,7 @@ PAGE = """<!doctype html>
   --bg:#0F1218;--surface:#181C25;--ink:#E8EBF1;--muted:#98A0B0;--line:#2A303C;
   --accent:#7C8FFF;--gold:#F0BE4C;--gold-soft:#3A2E12;--done:#4CC98E;--done-soft:#17392A;--miss:#F07F6C;--miss-soft:#3C1E19;--empty:#262B37;color-scheme:dark}}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--f-body)}
 .wrap{max-width:880px;margin:0 auto;padding-inline:16px;padding-block:24px 56px;display:grid;gap:22px}
 h1,h2{font-family:var(--f-display);margin:0;text-wrap:balance}
@@ -846,6 +1017,10 @@ table.sum tr.inactive td{color:var(--muted)}
 .note{border-radius:8px;padding:8px 12px;font-size:14px}
 .note.miss{background:var(--miss-soft);border:1px solid var(--miss)}
 .note.pend{background:var(--bg);border:1px dashed var(--line);color:var(--muted)}
+.whobar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:14px;color:var(--muted)}
+.whobar a.pick{font-size:13px;text-decoration:none;border:1px solid var(--line);border-radius:999px;padding:3px 10px;background:var(--surface);color:var(--ink)}
+.whobar a.pick:hover{border-color:var(--accent)}
+.rec .ears{font-size:13px;color:var(--muted)}
 .empty{padding:20px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:10px}
 @media (max-width:520px){.cell{min-height:52px;padding:4px}.dot{width:7px;height:7px}.cell .cnt{display:none}}
 </style></head><body>
@@ -858,6 +1033,15 @@ table.sum tr.inactive td{color:var(--muted)}
       {% if next_m %}<a href="?m={{ next_m }}">Sonraki →</a>{% else %}<span>Sonraki →</span>{% endif %}
     </nav>
   </header>
+
+  <div class="whobar">
+    {% if who %}<span>👋 {{ who.name }} olarak dinliyorsun ·</span><a href="#" id="whochange">değiştir</a>
+    {% else %}<span>Kim olduğunu seç, dinlediğin kayıtlarda adın görünsün:</span>
+      {% for p in people %}<a class="pick" href="/ben/{{ p.id }}">{{ p.name }}</a>{% endfor %}{% endif %}
+  </div>
+  {% if who %}<div class="whobar" id="whopick" hidden>
+    {% for p in people %}<a class="pick" href="/ben/{{ p.id }}">{{ p.name }}</a>{% endfor %}
+  </div>{% endif %}
 
   <section class="panel">
     <div class="cal">
@@ -909,8 +1093,9 @@ table.sum tr.inactive td{color:var(--muted)}
           {% if r.metronome %}<span class="bpm">🔥 ♩ {{ r.bpm }} bpm</span>{% endif %}
           <a class="dl" href="/audio/{{ r.id }}?dl=1">İndir</a></div>
         {% if r.caption %}<div class="cap">{{ r.caption }}</div>{% endif %}
-        {% if r.video %}<video controls preload="metadata" playsinline class="{{ 'round' if r.round }}" src="/audio/{{ r.id }}#t=0.1"></video>
-        {% else %}<audio controls preload="none" src="/audio/{{ r.id }}"></audio>{% endif %}
+        {% if r.video %}<video controls preload="metadata" playsinline class="{{ 'round' if r.round }}" data-id="{{ r.id }}" src="/audio/{{ r.id }}#t=0.1"></video>
+        {% else %}<audio controls preload="none" data-id="{{ r.id }}" src="/audio/{{ r.id }}"></audio>{% endif %}
+        {% if r.listeners %}<div class="ears">👂 {{ r.listeners|join(', ') }} dinledi</div>{% endif %}
       </article>
       {% endfor %}
       {% if d.missed %}<div class="note miss">Kaydetmedi: {{ d.missed|join(', ') }}</div>{% endif %}
@@ -919,6 +1104,22 @@ table.sum tr.inactive td{color:var(--muted)}
     {% endfor %}
   </section>
 </div>
+<script>
+{% if who %}
+document.querySelectorAll("audio[data-id],video[data-id]").forEach(function (el) {
+  el.addEventListener("play", function () {
+    if (el.dataset.sent) return;
+    el.dataset.sent = "1";
+    fetch("/dinle/" + el.dataset.id, {method: "POST", credentials: "same-origin"}).catch(function () {});
+  });
+});
+var ch = document.getElementById("whochange");
+if (ch) ch.addEventListener("click", function (e) {
+  e.preventDefault();
+  document.getElementById("whopick").hidden = false;
+});
+{% endif %}
+</script>
 </body></html>"""
 
 

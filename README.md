@@ -10,6 +10,9 @@ Arkadaş grubunun günlük müzik pratiği alışkanlığı için bir Telegram b
 - **Gün başlangıcı:** Gece 04:00'e kadar atılan kayıtlar önceki güne sayılır.
 - **Hatırlatma:** Her gün 21:00'de o gün kayıt atmayanlar grupta etiketlenir.
 - **Haftalık özet:** Pazar 21:30'da haftanın özeti ve "metronom ustası" gruba gönderilir.
+- **Kilometre taşları:** 7, 30, 50, 100, 200, 365 günlük serilerde ve 50, 100, 250, 500, 1000. kayıtta gruba kutlama mesajı gider.
+- **Kim dinledi:** Takvimde kim olduğunu bir kere seçen kişinin dinlediği kayıtların altında "👂 ... dinledi" görünür.
+- **Hata uyarısı:** Bota özelden `/yonetici` yazan ilk grup üyesi yönetici olur; bot bir mesajı gönderemezse ya da bir hata olursa ona özelden haber verir.
 - **Takvim:** Ay görünümü, kişi bazında kaydetti, metronomla kaydetti veya kaçırdı bilgisi, gün gün kayıtlar; kayıtlar dinlenebilir ve indirilebilir.
 
 ## Komutlar
@@ -23,6 +26,7 @@ Arkadaş grubunun günlük müzik pratiği alışkanlığı için bir Telegram b
 | `/katil` | Kayıt atmadan gruba katıl |
 | `/ayril` | Hatırlatmalardan çık |
 | `/sil` | Kendi kaydına yanıt olarak yazınca kayıt silinir |
+| `/yenilink` | Takvim linkini yeniler, eski link çalışmaz olur |
 | `/yardim` | Nasıl çalışır |
 
 Komutlar Türkçe karakterle de çalışır (`/bugün`, `/katıl`, `/yardım`).
@@ -50,11 +54,19 @@ Her şey `europe-west3` (Frankfurt) bölgesinde çalışır.
 | `metronome.py` | Kayıtta metronom algılama ve BPM tahmini |
 | `Dockerfile` | Python 3.12 ve ffmpeg içeren imaj |
 | `deploy.sh` | İlk kurulum: API'ler, Firestore, bucket, Cloud Run, webhook, zamanlanmış işler |
+| `tests/` | Firestore, Storage ve Telegram'ı taklit eden testler |
 | `KURULUM.md` | Adım adım kurulum rehberi |
 
 ## Geliştirme ve deploy
 
-`main` dalına yapılan her push, Cloud Build üzerinden otomatik olarak Cloud Run'a deploy edilir.
+`main` dalına yapılan her push, Cloud Build üzerinden otomatik olarak Cloud Run'a deploy edilir. Docker imajı oluşturulurken `tests/` içindeki testler çalışır; bir test başarısız olursa build durur ve çalışan sürüm değişmez.
+
+Testleri yerelde çalıştırmak için:
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+python -m pytest -q tests
+```
 
 Token, gizli anahtarlar ve saat ayarları kodda değil, Cloud Run'ın ortam değişkenlerinde durur. Bunları değiştirmek için:
 

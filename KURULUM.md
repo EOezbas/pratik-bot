@@ -47,6 +47,8 @@ Gruba **ilk mesaj** atıldığında bot o grubu kendine kaydeder ve sadece orada
 - `/takvim`: Takvim sayfasının linki. Linki açan tarayıcı bir yıl boyunca hatırlanır.
 - `/ayril`: Hatırlatmalardan çık.
 - `/sil`: Kendi kaydına yanıt olarak yazınca kayıt takvimden ve depodan silinir.
+- `/yenilink`: Takvim linkini yeniler.
+- **Yönetici:** Bota özelden `/yonetici` yaz; hata uyarıları sana gelir.
 
 Gece 04:00'e kadar atılan kayıtlar önceki güne sayılır. Bu saati `DAY_START_HOUR` ile değiştirebilirsin.
 

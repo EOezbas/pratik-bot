@@ -426,3 +426,14 @@ def test_gif_and_sticker_not_saved(env, plain_wav):
     env.message(EMRE, animation=gif, document=dict(gif))
     env.message(EMRE, sticker={"file_id": "s", "file_unique_id": "us", "is_video": True})
     assert not env.fs.store.get("recordings") and not env.tg.reactions()
+
+
+def test_admin_can_delete_any_recording(env, plain_wav):
+    make_admin(env)
+    join_all(env, CAN)
+    vid = env.voice(CAN, plain_wav)
+    reply = {"message_id": vid, "from": CAN, "voice": {"file_id": "f"}}
+    env.command(DENIZ, "/sil", reply_to_message=reply)
+    assert len(env.fs.store["recordings"]) == 1
+    env.command(EMRE, "/sil", reply_to_message=reply)
+    assert not env.fs.store["recordings"] and not env.bucket.data

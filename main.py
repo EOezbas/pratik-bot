@@ -661,7 +661,8 @@ def delete_recording(msg, user):
         send(chat_id, "Bu mesaj kayıtlı bir pratik kaydı değil.", mid)
         return
     r = snap.to_dict()
-    if str(r.get("user_id")) != str(user["id"]):
+    is_admin = str(get_admin_id() or "") == str(user["id"])
+    if str(r.get("user_id")) != str(user["id"]) and not is_admin:
         send(chat_id, "Sadece kendi kayıtlarını silebilirsin.", mid)
         return
     try:

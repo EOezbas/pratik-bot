@@ -26,7 +26,7 @@ Arkadaş grubunun günlük müzik pratiği alışkanlığı için bir Telegram b
 | `/takvim` | Takvim sayfasının linki |
 | `/katil` | Kayıt atmadan gruba katıl |
 | `/ayril` | Hatırlatmalardan çık |
-| `/sil` | Kendi kaydına yanıt olarak yazınca kayıt silinir |
+| `/sil` | Kendi kaydına yanıt olarak yazınca kayıt silinir; yönetici herkesin kaydını silebilir |
 | `/yenilink` | Takvim linkini yeniler, eski link çalışmaz olur |
 | `/yardim` | Nasıl çalışır |
 

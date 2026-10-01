@@ -36,8 +36,8 @@ Kodu değiştirdikten sonra aynı komutu tekrar çalıştırman yeterli.
 
 Gruba **ilk mesaj** atıldığında bot o grubu kendine kaydeder ve sadece orada çalışır.
 
-- **Sesli mesaj at:** Bot kaydeder ve 🔥 ile işaretler. Ses dosyası ve yuvarlak video mesajı da olur.
-- **Metronomla çal:** Metronom kayıtta duyuluyorsa (hoparlörden) bot ⚡ koyar ve BPM'i takvime yazar. Algılama tahmindir; kulaklıktan dinlenen metronom duyulmaz.
+- **Sesli mesaj at:** Bot kaydeder ve ❤ ile işaretler. Ses dosyası, video ve yuvarlak video mesajı da olur (en fazla 20 MB).
+- **Metronomla çal:** Metronom kayıtta duyuluyorsa (hoparlörden) bot 🔥 koyar ve BPM'i takvime yazar. Algılama tahmindir; kulaklıktan dinlenen metronom duyulmaz.
 - **Haftalık özet:** Pazar 21:30'da haftanın gün sayıları ve "metronom ustası" gruba gönderilir.
 - **Not ekle:** Sesli mesaja açıklama yaz ya da kendi kaydına metinle yanıt ver.
 - `/katil`: Kayıt atmadan gruba katıl. İlk kayıtta zaten otomatik eklenirsin.

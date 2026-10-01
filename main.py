@@ -3,6 +3,7 @@ import datetime as dt
 import hmac
 import html
 import logging
+import mimetypes
 import os
 import re
 from zoneinfo import ZoneInfo
@@ -28,6 +29,9 @@ DAY_START_HOUR = int(os.environ.get("DAY_START_HOUR", "4"))
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 FILE_API = f"https://api.telegram.org/file/bot{BOT_TOKEN}"
 COOKIE = "pz"
+MAX_TG_BYTES = 20 * 1024 * 1024
+MEDIA_EXTS = {"ogg", "oga", "opus", "mp3", "m4a", "aac", "wav", "flac", "aif", "aiff", "wma",
+              "mp4", "mov", "m4v", "webm", "mkv", "avi", "3gp"}
 
 TR_MONTHS = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz",
              "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
@@ -213,11 +217,7 @@ def handle_update(upd):
     if not user or user.get("is_bot"):
         return
 
-    media, kind = None, None
-    for k in ("voice", "audio", "video_note"):
-        if msg.get(k):
-            media, kind = msg[k], k
-            break
+    media, kind = find_media(msg)
 
     if media:
         upsert_member(user)
@@ -234,7 +234,7 @@ def handle_update(upd):
     # Text reply to own recording becomes its note
     rep = msg.get("reply_to_message")
     if text and rep and (rep.get("from") or {}).get("id") == user.get("id") and \
-            any(rep.get(k) for k in ("voice", "audio", "video_note")):
+            find_media(rep)[0]:
         ref = db.collection("recordings").document(f'{chat["id"]}_{rep["message_id"]}')
         snap = ref.get()
         if snap.exists:
@@ -242,6 +242,20 @@ def handle_update(upd):
             ref.update({"caption": (old + "\n" + text).strip()})
             tg("setMessageReaction", chat_id=chat["id"], message_id=msg["message_id"],
                reaction=[{"type": "emoji", "emoji": "✍"}])
+
+
+def find_media(msg):
+    for k in ("voice", "audio", "video_note", "video"):
+        if msg.get(k):
+            return msg[k], k
+    doc = msg.get("document")
+    if doc:
+        mime = doc.get("mime_type") or ""
+        name = (doc.get("file_name") or "").lower()
+        ext = name.rsplit(".", 1)[-1] if "." in name else ""
+        if mime.startswith(("audio/", "video/")) or ext in MEDIA_EXTS:
+            return doc, "document"
+    return None, None
 
 
 def save_recording(msg, user, media, kind):
@@ -252,11 +266,20 @@ def save_recording(msg, user, media, kind):
     if ref.get().exists:
         return
 
-    mime = media.get("mime_type") or {"voice": "audio/ogg", "video_note": "video/mp4"}.get(kind, "audio/mpeg")
+    if (media.get("file_size") or 0) > MAX_TG_BYTES:
+        send(chat_id, "Bu dosya 20 MB’tan büyük, Telegram botların indirmesine izin vermiyor. "
+                      "Daha kısa ya da daha düşük kaliteli bir kayıt gönder.", mid)
+        return
+
+    fname = (media.get("file_name") or "").lower()
     ext = {"voice": "ogg", "video_note": "mp4"}.get(kind)
     if not ext:
-        fname = media.get("file_name") or ""
-        ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else (mime.split("/")[-1] or "bin")
+        ext = fname.rsplit(".", 1)[-1] if "." in fname else ""
+    mime = media.get("mime_type") or ""
+    if not mime or mime == "application/octet-stream":
+        mime = mimetypes.guess_type(f"x.{ext}")[0] or ("video/mp4" if kind == "video" else "audio/mpeg")
+    if not ext:
+        ext = (mimetypes.guess_extension(mime) or ".bin").lstrip(".")
     ext = re.sub(r"[^a-z0-9]", "", ext)[:5] or "bin"
 
     info = tg("getFile", file_id=media["file_id"])
@@ -271,16 +294,16 @@ def save_recording(msg, user, media, kind):
         path = f"recordings/{day:%Y/%m/%d}/{user['id']}_{mid}.{ext}"
         bucket.blob(path).upload_from_string(r.content, content_type=mime)
         try:
-            has_metro, bpm = metronome.detect(r.content)
+            has_metro, bpm, decoded_sec = metronome.detect(r.content)
         except Exception:
             log.exception("metronome detection failed")
-            has_metro, bpm = False, None
+            has_metro, bpm, decoded_sec = False, None, 0
         ref.set({
             "user_id": str(user["id"]),
             "name": display_name(user),
             "day": day.isoformat(),
             "ts": ts,
-            "duration": int(media.get("duration") or 0),
+            "duration": int(media.get("duration") or decoded_sec or 0),
             "size": len(r.content),
             "gcs_path": path,
             "mime": mime,
@@ -294,7 +317,7 @@ def save_recording(msg, user, media, kind):
         send(chat_id, "Bu kayıt kaydedilemedi. Lütfen tekrar gönder.", mid)
         return
     tg("setMessageReaction", chat_id=chat_id, message_id=mid,
-       reaction=[{"type": "emoji", "emoji": "⚡" if has_metro else "🔥"}])
+       reaction=[{"type": "emoji", "emoji": "🔥" if has_metro else "❤"}])
 
 
 def handle_command(cmd, msg, user):
@@ -304,8 +327,8 @@ def handle_command(cmd, msg, user):
 
     if cmd in ("/start", "/yardim", "/help"):
         send(chat_id,
-             "Her gün pratikten kısa bir sesli mesaj at, ben kaydederim 🔥\n"
-             "Metronomla çalışırsan (hoparlörden, kayıtta duyulacak şekilde) ⚡ alırsın.\n"
+             "Her gün pratikten kısa bir sesli mesaj, video ya da ses dosyası at, ben kaydedip ❤ koyarım.\n"
+             "Metronomla çalışırsan (hoparlörden, kayıtta duyulacak şekilde) 🔥 alırsın.\n"
              "Not eklemek için mesaja açıklama yaz ya da kendi kaydına yanıt ver.\n\n"
              "/bugun – bugün kim kaydetti\n"
              "/seri – seriler ve bu ay\n"
@@ -338,9 +361,9 @@ def handle_command(cmd, msg, user):
             w = sum(1 for d in metro.get(m["id"], set()) if d >= ws)
             rows.append((streak(s, t), sum(1 for d in s if d.startswith(month_prefix)), w, m["name"]))
         rows.sort(reverse=True)
-        lines = ["<b>Seriler</b>", f"🔥 seri · 📅 {TR_MONTHS[t.month - 1]} ayında gün · ⚡ bu hafta metronomlu gün", ""]
+        lines = ["<b>Seriler</b>", f"⛓ seri · 📅 {TR_MONTHS[t.month - 1]} ayında gün · 🔥 bu hafta metronomlu gün", ""]
         for st, cnt, w, name in rows:
-            lines.append(f"🔥 {st} · 📅 {cnt} · ⚡ {w}   {html.escape(name)}")
+            lines.append(f"⛓ {st} · 📅 {cnt} · 🔥 {w}   {html.escape(name)}")
         send(chat_id, "\n".join(lines) if rows else "Henüz kayıt yok.", mid)
     elif cmd == "/takvim":
         if PUBLIC_URL:
@@ -405,7 +428,7 @@ def cron_reminder():
     days = load_days(t - dt.timedelta(days=400))
     missing = [m for m in members if t.isoformat() not in days.get(m["id"], set())]
     if not missing:
-        send(chat_id, "Bugün herkes kaydetti 🔥")
+        send(chat_id, "Bugün herkes kaydetti ❤")
         return "all done"
     lines = ["⏰ <b>Bugünün kaydı bekleniyor</b>"]
     for m in missing:
@@ -445,13 +468,13 @@ def cron_weekly():
         span = f"{tr_date(ws, False)} – {tr_date(we, False)}"
     lines = [f"📊 <b>Haftalık özet</b> · {span}", ""]
     for w, d, m in rows:
-        lines.append(f"{html.escape(m['name'])}: 📅 {d}/7 gün · ⚡ {w} metronomlu")
+        lines.append(f"{html.escape(m['name'])}: 📅 {d}/7 gün · 🔥 {w} metronomlu")
     top = rows[0][0]
     if top:
         names = ", ".join(mention(m["id"], m["name"]) for w, d, m in rows if w == top)
         lines += ["", f"🏆 Bu haftanın metronom ustası: {names} ({top} gün)"]
     else:
-        lines += ["", "Bu hafta metronomlu kayıt yok. Gelecek hafta ⚡ toplayalım!"]
+        lines += ["", "Bu hafta metronomlu kayıt yok. Gelecek hafta 🔥 toplayalım!"]
     send(chat_id, "\n".join(lines))
     return "sent"
 
@@ -558,7 +581,8 @@ def calendar_page():
                 "time": r["ts"].astimezone(TZ).strftime("%H:%M"),
                 "duration": fmt_duration(r.get("duration")),
                 "caption": r.get("caption", ""), "mime": r.get("mime", ""),
-                "video": r.get("kind") == "video_note",
+                "video": (r.get("mime") or "").startswith("video/") or r.get("kind") in ("video_note", "video"),
+                "round": r.get("kind") == "video_note",
                 "metronome": bool(r.get("metronome")), "bpm": r.get("bpm"),
             })
         if items or sts:
@@ -693,7 +717,8 @@ table.sum tr.inactive td{color:var(--muted)}
 .rec .dl{margin-left:auto;font-size:13px}
 .rec .cap{white-space:pre-wrap;overflow-wrap:anywhere}
 .rec audio,.rec video{width:100%;max-width:100%}
-.rec video{max-width:240px;border-radius:50%;aspect-ratio:1}
+.rec video{border-radius:8px;max-height:70vh;background:#000}
+.rec video.round{max-width:240px;border-radius:50%;aspect-ratio:1;object-fit:cover}
 .note{border-radius:8px;padding:8px 12px;font-size:14px}
 .note.miss{background:var(--miss-soft);border:1px solid var(--miss)}
 .note.pend{background:var(--bg);border:1px dashed var(--line);color:var(--muted)}
@@ -735,11 +760,11 @@ table.sum tr.inactive td{color:var(--muted)}
   <section class="panel">
     <h2>{{ month_label }} özeti</h2>
     <div class="tablewrap"><table class="sum">
-      <tr><th>Kişi</th><th>Seri</th><th title="Kaydettiği gün">Gün</th><th title="Metronomlu gün">⚡ Gün</th><th title="Kaçırdığı gün">Kaçırdı</th></tr>
+      <tr><th>Kişi</th><th>Seri</th><th title="Kaydettiği gün">Gün</th><th title="Metronomlu gün">🔥 Gün</th><th title="Kaçırdığı gün">Kaçırdı</th></tr>
       {% for s in summary %}
       <tr class="{% if not s.active %}inactive{% endif %}">
         <td>{{ s.name }}{% if not s.active %} (ayrıldı){% endif %}</td>
-        <td class="n">🔥 {{ s.streak }}</td><td class="n">{{ s.done }}</td><td class="n">⚡ {{ s.metro }}</td>
+        <td class="n">⛓ {{ s.streak }}</td><td class="n">{{ s.done }}</td><td class="n">🔥 {{ s.metro }}</td>
         <td class="n{% if s.missed %} miss-n{% endif %}">{{ s.missed }}</td>
       </tr>
       {% endfor %}
@@ -757,10 +782,10 @@ table.sum tr.inactive td{color:var(--muted)}
       <article class="rec">
         <div class="head"><span class="who">{{ r.name }}</span>
           <span class="meta">{{ r.time }} · {{ r.duration }}</span>
-          {% if r.metronome %}<span class="bpm">⚡ ♩ {{ r.bpm }} bpm</span>{% endif %}
+          {% if r.metronome %}<span class="bpm">🔥 ♩ {{ r.bpm }} bpm</span>{% endif %}
           <a class="dl" href="/audio/{{ r.id }}?dl=1">İndir</a></div>
         {% if r.caption %}<div class="cap">{{ r.caption }}</div>{% endif %}
-        {% if r.video %}<video controls preload="none" playsinline src="/audio/{{ r.id }}"></video>
+        {% if r.video %}<video controls preload="metadata" playsinline class="{{ 'round' if r.round }}" src="/audio/{{ r.id }}#t=0.1"></video>
         {% else %}<audio controls preload="none" src="/audio/{{ r.id }}"></audio>{% endif %}
       </article>
       {% endfor %}

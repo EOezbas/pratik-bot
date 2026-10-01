@@ -24,7 +24,7 @@ MIN_FLUX = 0.4  # log-energy jump per 2 ms frame
 
 def decode(data: bytes) -> np.ndarray:
     proc = subprocess.run(
-        ["ffmpeg", "-v", "error", "-i", "pipe:0", "-ac", "1", "-ar", str(SR), "-f", "f32le", "pipe:1"],
+        ["ffmpeg", "-v", "error", "-i", "pipe:0", "-vn", "-ac", "1", "-ar", str(SR), "-f", "f32le", "pipe:1"],
         input=data, capture_output=True, timeout=60, check=True)
     return np.frombuffer(proc.stdout, dtype=np.float32)
 
@@ -105,14 +105,15 @@ def fit_grid(onsets: np.ndarray, period: float, anchor: float):
 
 
 def detect(data: bytes):
-    """Returns (has_metronome, bpm or None)."""
+    """Returns (has_metronome, bpm or None, duration in seconds)."""
     x = decode(data)
+    duration = int(round(len(x) / SR))
     if len(x) < SR * 5:
-        return False, None
+        return False, None, duration
     env = onset_envelope(x)
     onsets = pick_onsets(env)
     if len(onsets) < MIN_RUN:
-        return False, None
+        return False, None, duration
 
     # Clicks are often weaker than notes, so every onset can anchor the grid
     anchors = onsets if len(onsets) <= 400 else onsets[np.linspace(0, len(onsets) - 1, 400).astype(int)]
@@ -130,8 +131,8 @@ def detect(data: bytes):
                 if best is None or score > best[0]:
                     best = (score, p, ks, hit)
     if best is None:
-        return False, None
-    return True, int(round(60 / true_period(*best[1:])))
+        return False, None, duration
+    return True, int(round(60 / true_period(*best[1:]))), duration
 
 
 def true_period(period: float, ks: np.ndarray, hit: np.ndarray) -> float:

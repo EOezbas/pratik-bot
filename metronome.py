@@ -5,6 +5,7 @@ Human playing drifts by tens of milliseconds, so a long run of onsets that fit
 a fixed grid with very low timing error is taken as a metronome.
 """
 import subprocess
+import tempfile
 
 import numpy as np
 from scipy.signal import butter, find_peaks, sosfiltfilt, stft
@@ -23,9 +24,13 @@ MIN_FLUX = 0.4  # log-energy jump per 2 ms frame
 
 
 def decode(data: bytes) -> np.ndarray:
-    proc = subprocess.run(
-        ["ffmpeg", "-v", "error", "-i", "pipe:0", "-vn", "-ac", "1", "-ar", str(SR), "-f", "f32le", "pipe:1"],
-        input=data, capture_output=True, timeout=60, check=True)
+    # A temp file instead of a pipe: phone videos often keep their index at the end of the file
+    with tempfile.NamedTemporaryFile() as f:
+        f.write(data)
+        f.flush()
+        proc = subprocess.run(
+            ["ffmpeg", "-v", "error", "-i", f.name, "-vn", "-ac", "1", "-ar", str(SR), "-f", "f32le", "pipe:1"],
+            capture_output=True, timeout=120, check=True)
     return np.frombuffer(proc.stdout, dtype=np.float32)
 
 
@@ -96,8 +101,9 @@ def fit_grid(onsets: np.ndarray, period: float, anchor: float):
     nearest, dist = match(onsets, expected)
     hit = dist <= FINAL_TOL
     resid = nearest[hit] - expected[hit]
-    # Same test half a beat off the grid: random or dense onsets hit both equally
-    _, off_dist = match(onsets, expected + period / 2)
+    # Same test at an offset no musical subdivision lands on: dense or random onsets
+    # hit it as often as the grid, a metronome (even one clicking subdivisions) does not
+    _, off_dist = match(onsets, expected + period * 0.37)
     off_rate = float(np.mean(off_dist <= FINAL_TOL))
     on_rate = float(np.mean(hit))
     resid_ms = float(np.std(resid) * 1000) if hit.any() else 99.0

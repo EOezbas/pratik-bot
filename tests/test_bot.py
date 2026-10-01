@@ -437,3 +437,68 @@ def test_admin_can_delete_any_recording(env, plain_wav):
     assert len(env.fs.store["recordings"]) == 1
     env.command(EMRE, "/sil", reply_to_message=reply)
     assert not env.fs.store["recordings"] and not env.bucket.data
+
+
+# ---------- real-world recording formats ----------
+
+def to_phone_mp4(wav):
+    """MP4 as phones write it: index (moov) at the end, so it cannot be read from a pipe."""
+    import subprocess
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        src, dst = f"{d}/in.wav", f"{d}/out.mp4"
+        open(src, "wb").write(wav)
+        subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=160x120:r=10",
+                        "-i", src, "-shortest", "-c:v", "libx264", "-c:a", "aac", dst], check=True)
+        return open(dst, "rb").read()
+
+
+def test_phone_video_is_analyzed(env, metro_wav):
+    mp4 = to_phone_mp4(metro_wav)
+    assert mp4.find(b"moov") > mp4.find(b"mdat")
+    has, bpm, duration, _ = env.main.metronome.analyze(mp4)
+    assert has and bpm == 92 and duration >= 19
+
+
+def test_metronome_with_subdivision_clicks(env):
+    import io
+    import wave
+    m = env.main.metronome
+    sr = 16000
+    rng = np.random.default_rng(5)
+    y = np.zeros(sr * 30)
+    n = int(0.012 * sr)
+    t = np.arange(n) / sr
+    click = np.sin(2 * np.pi * 2500 * t) * np.exp(-t / 0.002)
+    beat = 60 / 124
+    k = 0
+    while k * beat / 2 + 0.3 < 29:
+        i = int((k * beat / 2 + 0.3) * sr)
+        y[i:i + n] += click * (0.25 if k % 2 == 0 else 0.12)
+        k += 1
+    y += 0.3 * wave_noise(rng, len(y), sr)
+    y /= np.abs(y).max() * 1.1
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes((y * 32767).astype(np.int16).tobytes())
+    has, bpm, _, _ = m.analyze(buf.getvalue())
+    assert has and bpm == 124
+
+
+def wave_noise(rng, n, sr):
+    """Plucked notes on eighths with human timing, as a backing for click tests."""
+    y = np.zeros(n)
+    step = 60 / 124 / 2
+    k = 0
+    while k * step + 0.3 < n / sr - 1:
+        f = rng.choice([196, 247, 294])
+        m = int(0.4 * sr)
+        tt = np.arange(m) / sr
+        note = np.sin(2 * np.pi * f * tt) * np.exp(-tt / 0.2)
+        i = max(0, int((k * step + 0.3 + rng.normal(0, 0.02)) * sr))
+        y[i:i + m] += note[:n - i]
+        k += 1
+    return y

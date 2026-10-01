@@ -110,7 +110,7 @@ def test_seri_shows_history_with_joker(env):
             env.add_recording(1, back, metro=back % 4 == 0)
     env.command(EMRE, "/seri")
     text = env.tg.sent()[-1]
-    assert not text.startswith("⛓")
+    assert "⛓" not in text and not text.startswith("Seriler")
     emre_line = text.split("\n")[1]
     assert len(re.findall("🔥|❤|🃏|💔", emre_line)) == 21
     assert "🃏" in emre_line
@@ -140,6 +140,7 @@ def test_detay_valid_for_short_recordings(env):
     env.command(EMRE, "/detay")
     text = env.tg.sent()[-1]
     assert "&lt;1 dk · 1 kayıt" in text and "0 dk · 0 kayıt" in text
+    assert "⛓" not in text
     assert_valid_html(env)
 
 

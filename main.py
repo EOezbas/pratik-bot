@@ -496,7 +496,7 @@ def check_milestones(chat_id, user):
         key = f"streak{cur}:{start.isoformat()}"
         if key not in reached:
             new_keys.append(key)
-            lines.append(f"🎉 {mention(uid, member.get('name', ''))} {cur} günlük seriye ulaştı! ⛓")
+            lines.append(f"🎉 {mention(uid, member.get('name', ''))} {cur} günlük seriye ulaştı!")
     if st["count"] in COUNT_MILESTONES:
         key = f"count{st['count']}"
         if key not in reached:
@@ -572,7 +572,7 @@ def handle_command(cmd, msg, user):
             month_metro = sum(1 for d in st["metro"] if month_first.isoformat() <= d <= t.isoformat())
             joker = "kullanıldı" if joker_used_this_week(hist, t) else "duruyor"
             rows.append((cur, m["name"], [
-                f"⛓ En uzun seri: {longest} gün · şu an {cur} gün",
+                f"🏆 En uzun seri: {longest} gün · şu an {cur} gün",
                 f"🃏 Bu haftanın jokeri: {joker}",
                 f"📅 {month_name}: {month_done}/{span} gün",
                 f"🔥 Metronomlu: {month_metro} gün ({month_name}) · {len(st['metro'])} gün (toplam)",
@@ -1072,7 +1072,7 @@ table.sum tr.inactive td{color:var(--muted)}
       {% for s in summary %}
       <tr class="{% if not s.active %}inactive{% endif %}">
         <td>{{ s.name }}{% if not s.active %} (ayrıldı){% endif %}</td>
-        <td class="n">⛓ {{ s.streak }}</td><td class="n">{{ s.done }}</td><td class="n">🔥 {{ s.metro }}</td>
+        <td class="n">{{ s.streak }}</td><td class="n">{{ s.done }}</td><td class="n">🔥 {{ s.metro }}</td>
         <td class="n{% if s.missed %} miss-n{% endif %}">{{ s.missed }}</td>
       </tr>
       {% endfor %}

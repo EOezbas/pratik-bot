@@ -82,7 +82,7 @@ def today():
 
 
 # Failures of these calls are harmless and not worth an alert
-QUIET_METHODS = {"setMessageReaction", "setMyCommands"}
+QUIET_METHODS = {"setMessageReaction", "setMyCommands", "deleteMessage"}
 _last_alert = {}
 
 
@@ -674,8 +674,13 @@ def delete_recording(msg, user):
         log.exception("delete failed")
         send(chat_id, "Kayıt silinemedi. Biraz sonra tekrar dene.", mid)
         return
+    if tg("deleteMessage", chat_id=chat_id, message_id=rep["message_id"]):
+        tg("deleteMessage", chat_id=chat_id, message_id=mid)
+        return
+    # Bots cannot delete messages older than 48 hours or without the delete permission
     tg("setMessageReaction", chat_id=chat_id, message_id=rep["message_id"], reaction=[])
-    send(chat_id, "🗑 Kayıt takvimden ve depodan silindi. Telegram'daki mesajı istersen kendin silebilirsin.", mid)
+    send(chat_id, "🗑 Kayıt takvimden silindi, ama Telegram'daki mesajı silemedim "
+                  "(48 saatten eski olabilir). Mesajı elle silebilirsin.", mid)
 
 MILESTONE_LABELS = [(f"streak{n}", f"{n} gün") for n in sorted(STREAK_MILESTONES)] + \
                    [(f"count{n}", "İlk kayıt" if n == 1 else f"{n}. kayıt") for n in sorted(COUNT_MILESTONES)]

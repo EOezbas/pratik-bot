@@ -502,3 +502,22 @@ def wave_noise(rng, n, sr):
         y[i:i + m] += note[:n - i]
         k += 1
     return y
+
+
+def test_sil_deletes_telegram_messages(env, plain_wav):
+    join_all(env, EMRE)
+    vid = env.voice(EMRE, plain_wav)
+    cmd_id = env.command(EMRE, "/sil", reply_to_message={"message_id": vid, "from": EMRE, "voice": {"file_id": "f"}})
+    deleted = [p["message_id"] for m, p in env.tg.calls if m == "deleteMessage"]
+    assert deleted == [vid, cmd_id]
+    assert not any("silindi" in s for s in env.tg.sent())
+
+
+def test_sil_old_message_falls_back_to_notice(env, plain_wav):
+    join_all(env, EMRE)
+    vid = env.voice(EMRE, plain_wav)
+    env.tg.fail.add("deleteMessage")
+    env.command(EMRE, "/sil", reply_to_message={"message_id": vid, "from": EMRE, "voice": {"file_id": "f"}})
+    assert not env.fs.store["recordings"]
+    assert "elle silebilirsin" in env.tg.sent()[-1]
+    assert not [p for m, p in env.tg.calls if m == "sendMessage" and "⚠️" in p["text"]]

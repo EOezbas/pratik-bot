@@ -674,3 +674,36 @@ def test_steady_passage_in_long_take_is_not_metronome(env):
         w.setframerate(sr)
         w.writeframes((y * 32767).astype(np.int16).tobytes())
     assert not m.detect(buf.getvalue())[0]
+
+
+# ---------- half tempo when the pulse found is the note rate ----------
+
+def pulse_env(bpm, seconds=40, accent=1.0, seed=0):
+    m = __import__("metronome")
+    rng = np.random.default_rng(seed)
+    env = np.abs(rng.normal(0, 0.05, int(seconds * m.FPS)))
+    period = 60 * m.FPS / bpm
+    for k, pos in enumerate(np.arange(5, len(env) - 5, period)):
+        env[int(round(pos))] += accent if k % 2 == 0 else 1.0
+    return env
+
+
+def test_accented_pulse_is_halved(env):
+    m = env.main.metronome
+    assert m.beat_tempo(pulse_env(120, accent=2.0), 120) == 60
+
+
+def test_even_pulse_kept_in_normal_range(env):
+    m = env.main.metronome
+    assert m.beat_tempo(pulse_env(90), 90) == 90
+    assert m.beat_tempo(pulse_env(100), 100) == 100
+
+
+def test_fast_even_pulse_prefers_slower_beat(env):
+    m = env.main.metronome
+    assert m.beat_tempo(pulse_env(136), 136) == 68
+
+
+def test_never_halved_below_minimum(env):
+    m = env.main.metronome
+    assert m.beat_tempo(pulse_env(80, accent=2.0), 80) == 80

@@ -239,6 +239,11 @@ N_FFT, T_HOP = 1024, 160  # 10 ms frames
 FPS = SR / T_HOP
 T_MIN_BPM, T_MAX_BPM = 40, 220
 PRIOR_BPM, PRIOR_OCT = 100.0, 1.0
+# The pulse found is often the note rate, twice the beat; these decide when to halve it
+HALF_MIN_BPM = 55  # never halve below this
+HALF_ACCENT_RATIO = 1.4  # every other pulse this much stronger means it is the beat
+HALF_FAST_BPM = 125  # at or above this, a nearly as strong half tempo wins
+HALF_SCORE_RATIO = 0.7
 
 
 def _onset_strength(x):
@@ -309,7 +314,47 @@ def estimate_tempo(x):
     # Parts may lock onto half or double the tempo; that still supports it
     agree = [p for p in parts if p and abs(np.log2(p / bpm) - round(np.log2(p / bpm))) < 0.04]
     ok = strength >= 0.12 and len(agree) >= max(2, int(0.75 * len(parts)))
-    return int(round(bpm)) if ok else None
+    if not ok:
+        return None
+    return int(round(beat_tempo(env, bpm)))
+
+
+def _comb_score(env, bpm):
+    ac = _autocorr(env)
+    lag = 60 * FPS / bpm
+    score = 0.0
+    for m, w in ((1, 1.0), (2, 0.5), (3, 0.33), (4, 0.25)):
+        i = int(round(lag * m))
+        if i + 1 < len(ac):
+            score += w * ac[max(0, i - 1):i + 2].max()
+    return score / 2.08
+
+
+def _accent_ratio(env, bpm):
+    """How much stronger every other pulse is; well above 1 when the pulse is half a beat."""
+    period = 60 * FPS / bpm
+    best = None
+    for phase in np.linspace(0, period, 24, endpoint=False):
+        idx = np.round(np.arange(phase, len(env) - 2, period)).astype(int)
+        val = np.array([env[max(0, i - 2):i + 3].max() for i in idx])
+        if best is None or val.sum() > best.sum():
+            best = val
+    if best is None or len(best) < 8:
+        return 1.0
+    even, odd = best[0::2].mean(), best[1::2].mean()
+    return max(even, odd) / (min(even, odd) + 1e-9)
+
+
+def beat_tempo(env, bpm):
+    """Halves a pulse tempo that is really the note rate: by accents first, then by preferring the slower beat."""
+    half = bpm / 2
+    if half < HALF_MIN_BPM:
+        return bpm
+    if _accent_ratio(env, bpm) >= HALF_ACCENT_RATIO:
+        return half
+    if bpm >= HALF_FAST_BPM and _comb_score(env, half) >= HALF_SCORE_RATIO * _comb_score(env, bpm):
+        return half
+    return bpm
 
 
 def analyze(data: bytes):

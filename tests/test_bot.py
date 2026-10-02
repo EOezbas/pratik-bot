@@ -707,3 +707,38 @@ def test_fast_even_pulse_prefers_slower_beat(env):
 def test_never_halved_below_minimum(env):
     m = env.main.metronome
     assert m.beat_tempo(pulse_env(80, accent=2.0), 80) == 80
+
+
+def test_clicks_heard_only_where_playing_pauses(env):
+    """Strumming covers the clicks; a few seconds of clicks alone are enough."""
+    import io
+    import wave
+    sr = 16000
+    rng = np.random.default_rng(11)
+    period = 60 / 95
+    y = np.zeros(sr * 27)
+    n = int(0.01 * sr)
+    tt = np.arange(n) / sr
+    click = rng.standard_normal(n) * np.exp(-tt / 0.0015)
+    t = 0.5
+    while t < 26:
+        i = int(t * sr)
+        y[i:i + n] += 0.15 * click
+        if t < 20:
+            # A loud strum near each beat and between beats, with human timing
+            for sub in (0, 0.5):
+                m = int(0.3 * sr)
+                st = np.arange(m) / sr
+                strum = rng.standard_normal(m) * np.exp(-st / 0.08)
+                j = int((t + sub * period + rng.normal(0, 0.02)) * sr)
+                y[j:j + m] += 0.8 * strum[:len(y) - j]
+        t += period
+    y /= np.abs(y).max() * 1.1
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes((y * 32767).astype(np.int16).tobytes())
+    has, bpm, _ = env.main.metronome.detect(buf.getvalue())
+    assert has and bpm == 95

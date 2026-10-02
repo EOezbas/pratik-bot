@@ -30,6 +30,8 @@ STEADY_MIN_COVER = 0.9  # share of beats in the chain that have a click
 STEADY_MAX_JITTER_MS = 10.0
 STEADY_MAX_ANCHORS = 60
 STEADY_MIN_SPAN = 0.6  # a metronome runs through most of the take, not just a passage
+CLEAN_RUN = 8  # consecutive clicks heard clearly, e.g. where the playing pauses
+CLEAN_MAX_RESID_MS = 1.5  # far tighter than any human can hold over that many beats
 MIN_FLUX = 0.4  # log-energy jump per 2 ms frame
 
 
@@ -147,9 +149,41 @@ def detect(data: bytes):
                 if best is None or score > best[0]:
                     best = (score, p, ks, hit)
     if best is None:
-        bpm = detect_steady(x, env)
+        bpm = detect_clean_run(onsets, env) or detect_steady(x, env)
         return (True, bpm, duration) if bpm else (False, None, duration)
     return True, int(round(60 / true_period(*best[1:]))), duration
+
+
+def detect_clean_run(onsets: np.ndarray, env: np.ndarray):
+    """Beat tempo when a stretch of clicks is machine-exact, though playing masks the rest."""
+    anchors = onsets if len(onsets) <= 400 else onsets[np.linspace(0, len(onsets) - 1, 400).astype(int)]
+    best = None
+    for period in candidate_periods(env):
+        for anchor in anchors:
+            # Walk forward from the anchor while every beat has an onset close to the grid
+            ts = [anchor]
+            while True:
+                pred = ts[-1] + period
+                near, dist = match(onsets, np.array([pred]))
+                if dist[0] > FINAL_TOL:
+                    break
+                ts.append(float(near[0]))
+                if len(ts) >= 2 * CLEAN_RUN:
+                    break
+            if len(ts) < CLEAN_RUN:
+                continue
+            ts = np.array(ts)
+            k = np.arange(len(ts))
+            beat, start = np.polyfit(k, ts, 1)
+            resid_ms = float(np.std(ts - (start + k * beat)) * 1000)
+            if resid_ms <= CLEAN_MAX_RESID_MS and (best is None or (len(ts), -resid_ms) > best[0]):
+                best = ((len(ts), -resid_ms), beat)
+    if best is None:
+        return None
+    beat = best[1]
+    while beat < 60 / MAX_BPM * 1.5 and beat * 2 <= 60 / MIN_BPM:
+        beat *= 2
+    return int(round(60 / beat))
 
 
 def bright_onsets(x: np.ndarray) -> np.ndarray:

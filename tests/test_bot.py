@@ -645,3 +645,32 @@ def test_file_name_shown_in_calendar(env, plain_wav):
     env.client.get("/?t=tok")
     page = env.client.get("/").data.decode()
     assert page.count("📄 time_solo.mp3") == 1 and page.count('class="fname"') == 1
+
+
+def test_steady_passage_in_long_take_is_not_metronome(env):
+    """A short steady stretch inside a long free take should not count as a metronome."""
+    import io
+    import wave
+    m = env.main.metronome
+    steady = np.frombuffer(drifting_click_take(seconds=20)[44:], dtype=np.int16).astype(float)
+    rng = np.random.default_rng(9)
+    sr = 16000
+    free = np.zeros(sr * 60)
+    t = 0.3
+    while t < 59:
+        n = int(0.4 * sr)
+        tt = np.arange(n) / sr
+        note = np.sin(2 * np.pi * rng.choice([196, 247, 330]) * tt) * np.exp(-tt / 0.2)
+        note[:80] *= np.linspace(0, 1, 80)
+        i = int(t * sr)
+        free[i:i + n] += 8000 * note[:len(free) - i]
+        t += rng.exponential(0.4) + 0.05
+    y = np.concatenate([free[:sr * 30], steady, free[sr * 30:]])
+    y = y / np.abs(y).max() * 0.9
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes((y * 32767).astype(np.int16).tobytes())
+    assert not m.detect(buf.getvalue())[0]

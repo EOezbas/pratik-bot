@@ -29,6 +29,7 @@ STEADY_MIN_BEATS = 20
 STEADY_MIN_COVER = 0.9  # share of beats in the chain that have a click
 STEADY_MAX_JITTER_MS = 10.0
 STEADY_MAX_ANCHORS = 60
+STEADY_MIN_SPAN = 0.6  # a metronome runs through most of the take, not just a passage
 MIN_FLUX = 0.4  # log-energy jump per 2 ms frame
 
 
@@ -203,6 +204,8 @@ def detect_steady(x: np.ndarray, env: np.ndarray):
         for anchor in anchors:
             ks, ts = track_beats(onsets, anchor, period)
             if len(ks) < STEADY_MIN_BEATS or len(ks) / (ks[-1] + 1) < STEADY_MIN_COVER:
+                continue
+            if ts[-1] - ts[0] < STEADY_MIN_SPAN * len(x) / SR:
                 continue
             # Deviation of each beat from the midpoint of its two neighbours
             inner = np.where((np.diff(ks)[:-1] == 1) & (np.diff(ks)[1:] == 1))[0] + 1

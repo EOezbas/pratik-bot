@@ -107,8 +107,13 @@ def alert(key, text):
 
 def tg(method, **params):
     try:
-        r = requests.post(f"{API}/{method}", json=params, timeout=30)
-        data = r.json()
+        for _ in range(3):
+            r = requests.post(f"{API}/{method}", json=params, timeout=30)
+            data = r.json()
+            wait = (data.get("parameters") or {}).get("retry_after")
+            if data.get("ok") or data.get("error_code") != 429 or not wait:
+                break
+            time.sleep(min(wait, 30))
         if not data.get("ok"):
             log.warning("telegram %s failed: %s", method, data)
             if method not in QUIET_METHODS:
@@ -798,6 +803,30 @@ def send_celebration(chat_id, key, emoji):
     tg("sendMessage", chat_id=chat_id, text=emoji)
 
 
+SEND_GAP_SEC = 1.0  # stays under Telegram's per-chat rate limit
+
+
+def list_celebrations(chat_id, assigned):
+    lines = ["Kutlamalar:"]
+    for key, label in MILESTONE_LABELS:
+        item = assigned.get(key)
+        lines.append(f"{label}: {'sticker' if item and item['type'] == 'sticker' else 'GIF' if item else '– büyük emoji'}")
+    lines.append("\nAyarlananlar aşağıda. Kaldırmak istediğine yanıt verip /sil yaz.")
+    tg("sendMessage", chat_id=chat_id, text="\n".join(lines))
+    for key, label in MILESTONE_LABELS:
+        item = assigned.get(key)
+        if not item:
+            continue
+        time.sleep(SEND_GAP_SEC)
+        if item["type"] == "sticker":
+            # Stickers cannot carry a caption
+            tg("sendMessage", chat_id=chat_id, text=f"{label}:")
+            time.sleep(SEND_GAP_SEC)
+            send_media(chat_id, item)
+        else:
+            tg("sendAnimation", chat_id=chat_id, animation=item["file_id"], caption=label)
+
+
 def milestone_keyboard():
     labels = [label for _, label in MILESTONE_LABELS]
     rows = [labels[i:i + 3] for i in range(0, len(labels), 3)] + [["İptal"]]
@@ -854,17 +883,8 @@ def handle_private(msg):
         tg("sendMessage", chat_id=chat_id, text=f"✅ {raw} kutlaması için ayarlandı.",
            reply_markup={"remove_keyboard": True})
     elif cmd == "/kutlamalar":
-        lines = ["Kutlamalar:"]
-        for key, label in MILESTONE_LABELS:
-            item = cel["assigned"].get(key)
-            lines.append(f"{label}: {'sticker' if item and item['type'] == 'sticker' else 'GIF' if item else '– büyük emoji'}")
-        lines.append("\nAyarlananlar aşağıda. Kaldırmak istediğine yanıt verip /sil yaz.")
-        tg("sendMessage", chat_id=chat_id, text="\n".join(lines))
-        for key, label in MILESTONE_LABELS:
-            item = cel["assigned"].get(key)
-            if item:
-                tg("sendMessage", chat_id=chat_id, text=f"{label}:")
-                send_media(chat_id, item)
+        # In the background so the webhook answers at once and Telegram does not resend the command
+        run_in_background(list_celebrations, chat_id, cel["assigned"])
     else:
         target = celebration_media(msg.get("reply_to_message") or {})
         if not target:

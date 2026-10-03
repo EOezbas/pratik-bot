@@ -1,5 +1,6 @@
 import datetime as dt
 import re
+from unittest import mock
 
 import numpy as np
 import pytest
@@ -280,7 +281,9 @@ def test_milestone_sends_big_emoji_without_stickers(env, plain_wav):
     assert env.tg.sent()[-1] == "🎉"
 
 
-def test_admin_assigns_celebration_per_milestone(env, plain_wav):
+def test_admin_assigns_celebration_per_milestone(env, plain_wav, monkeypatch):
+    monkeypatch.setattr(env.main, "run_in_background", lambda fn, *a: fn(*a))
+    monkeypatch.setattr(env.main, "SEND_GAP_SEC", 0)
     make_admin(env)
     private = {"id": 1, "type": "private"}
     env.message(CAN, chat={"id": 2, "type": "private"}, sticker={"file_id": "S0", "file_unique_id": "u0"})
@@ -748,3 +751,28 @@ def test_clicks_heard_only_where_playing_pauses(env):
         w.writeframes((y * 32767).astype(np.int16).tobytes())
     has, bpm, _ = env.main.metronome.detect(buf.getvalue())
     assert has and bpm == 95
+
+
+def test_rate_limited_call_is_retried(env, monkeypatch):
+    monkeypatch.setattr(env.main.time, "sleep", lambda s: None)
+    orig, hits = env.tg.post, []
+
+    def post(url, json=None, timeout=None):
+        hits.append(url)
+        if len(hits) == 1:
+            return mock.Mock(json=lambda: {"ok": False, "error_code": 429, "parameters": {"retry_after": 3}})
+        return orig(url, json=json, timeout=timeout)
+
+    monkeypatch.setattr(env.main.requests, "post", post)
+    assert env.main.tg("sendMessage", chat_id=1, text="x") is True and len(hits) == 2
+
+
+def test_celebration_list_labels_gifs(env, monkeypatch):
+    monkeypatch.setattr(env.main, "run_in_background", lambda fn, *a: fn(*a))
+    monkeypatch.setattr(env.main, "SEND_GAP_SEC", 0)
+    make_admin(env)
+    private = {"id": 1, "type": "private"}
+    env.message(EMRE, chat=private, animation={"file_id": "G7", "file_unique_id": "u7"})
+    env.message(EMRE, chat=private, text="7 gün")
+    env.message(EMRE, chat=private, text="/kutlamalar")
+    assert ("sendAnimation", {"chat_id": 1, "animation": "G7", "caption": "7 gün"}) in env.tg.calls

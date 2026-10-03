@@ -7,3 +7,4 @@ numpy==2.*
 scipy==1.*
 telethon==1.*
 cryptg==0.*
+ai-edge-litert==2.*

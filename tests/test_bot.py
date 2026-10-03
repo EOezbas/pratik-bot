@@ -1,3 +1,4 @@
+import os
 import datetime as dt
 import re
 from unittest import mock
@@ -816,3 +817,27 @@ def test_admin_adds_and_removes_milestones(env, plain_wav):
         env.add_recording(1, back)
     env.voice(EMRE, plain_wav)
     assert any("3 günlük seriye" in t for t in env.tg.sent())
+
+
+SPEECH = open(os.path.join(os.path.dirname(__file__), "data", "speech.ogg"), "rb").read()
+
+
+def test_talk_only_voice_message_is_not_practice(env, plain_wav):
+    import music
+    assert not music.has_music(SPEECH) and music.has_music(plain_wav)
+    vid = env.voice(EMRE, SPEECH)
+    assert f"-1001_{vid}" not in env.fs.store.get("recordings", {})
+    assert "1" not in env.fs.store.get("members", {})
+    assert not [p for m, p in env.tg.calls if m == "setMessageReaction"]
+
+
+def test_force_save_by_owner_only(env):
+    vid = env.voice(EMRE, SPEECH)
+    env.command(CAN, "/kaydet", reply_to_message={"message_id": vid, "from": EMRE, "chat": env.CHAT,
+                                                 "date": int(__import__("time").time()), "voice": {"file_id": "f", "duration": 12}})
+    assert "Sadece kendi kaydını" in env.tg.sent()[-1]
+    env.command(EMRE, "/kaydet", reply_to_message={"message_id": vid, "from": EMRE, "chat": env.CHAT,
+                                                  "date": int(__import__("time").time()), "voice": {"file_id": "f", "duration": 12}})
+    assert env.fs.store["recordings"][f"-1001_{vid}"]["user_id"] == "1"
+    assert ("setMessageReaction", {"chat_id": -1001, "message_id": vid,
+                                   "reaction": [{"type": "emoji", "emoji": "❤"}]}) in env.tg.calls

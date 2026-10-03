@@ -4,7 +4,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -r
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY main.py metronome.py bigfiles.py ./
+COPY main.py metronome.py bigfiles.py music.py ./
+COPY models ./models
 
 # A failing test fails the image build, so nothing gets deployed
 FROM base AS test

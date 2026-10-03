@@ -5,6 +5,7 @@ Arkadaş grubunun günlük müzik pratiği alışkanlığı için bir Telegram b
 ## Özellikler
 
 - **Kayıt:** Sesli mesaj, yuvarlak video, normal video ve "Dosya" olarak gönderilen ses ya da video dosyaları kaydedilir. Bot kaydı ❤ ile işaretler. 20 MB'tan büyük dosyalar (1 GB'a kadar) arka planda indirilir; bu sırada bot 👀 koyar. Videolar 720p'ye, sesler 160 kbps Opus'a küçültülerek saklanır. Bunun için `TG_API_ID` ve `TG_API_HASH` ayarlı olmalı.
+- **Müzik kontrolü:** İçinde müzik (çalma ya da şarkı söyleme) olmayan, sadece konuşma olan sesli mesajlar ve videolar pratik sayılmaz; bot bunlara dokunmaz. Bunu YAMNet adlı küçük bir ses sınıflandırma modeli yapar; kayıtta birkaç saniye müzik duyması yeterli, emin olamazsa kaydı pratik sayar. Bot bir pratiği yanlışlıkla atlarsa kayda yanıt verip `/kaydet` yazmak yeterli.
 - **Metronom algılama:** Kayıtta duyulabilir bir metronom varsa bot 🔥 koyar ve BPM'i kaydeder. Mekanik metronomlar gibi biraz kayan tıklar da kabul edilir; bunun bedeli, çok düzenli çalan (zamanlama sapması ~10 ms altı) birinin metronomsuz kaydının da 🔥 alabilmesi. Metronomsuz kayıtlarda tempo çalınan notalardan tahmin edilir ve takvimde gri "♩ ~84 bpm" olarak gösterilir; tempo düzensizse (rubato, serbest çalım) gösterilmez. Notaların hızı vuruşun iki katıysa bot önce vurgulara bakar, karar veremezse 125 bpm üstünde yavaş olan vuruşu seçer; bu yüzden gerçekten çok hızlı (125+) çalınan parçalar yarı tempo görünebilir. Bu bilgi takibi etkilemez.
 - **Seri ve joker:** Haftada (Pazartesi–Pazar) atlanan ilk gün 🃏 joker sayılır ve seriyi bozmaz.
 - **Gün başlangıcı:** Gece 04:00'e kadar atılan kayıtlar önceki güne sayılır.
@@ -27,6 +28,7 @@ Arkadaş grubunun günlük müzik pratiği alışkanlığı için bir Telegram b
 | `/katil` | Kayıt atmadan gruba katıl |
 | `/ayril` | Hatırlatmalardan çık |
 | `/sil` | Kendi kaydına yanıt olarak yazınca kayıt takvimden ve Telegram'dan silinir (Telegram'dan silme için bot "Mesajları sil" iznine sahip olmalı; 48 saatten eski mesajlar elle silinir); yönetici herkesin kaydını silebilir |
+| `/kaydet` | Bot kaydı konuşma sanıp kaydetmediyse kayda yanıt olarak yazınca kaydedilir (kendi kaydın; yönetici herkesinkini) |
 | `/yenilink` | Takvim linkini yeniler, eski link çalışmaz olur |
 | `/yardim` | Nasıl çalışır |
 
@@ -53,6 +55,7 @@ Her şey `europe-west3` (Frankfurt) bölgesinde çalışır.
 |---|---|
 | `main.py` | Telegram webhook, komutlar, hatırlatmalar, takvim sayfası |
 | `metronome.py` | Kayıtta metronom algılama ve BPM tahmini |
+| `music.py`, `models/yamnet.tflite` | Kayıtta müzik olup olmadığının kontrolü (YAMNet, Apache 2.0) |
 | `Dockerfile` | Python 3.12 ve ffmpeg içeren imaj |
 | `deploy.sh` | İlk kurulum: API'ler, Firestore, bucket, Cloud Run, webhook, zamanlanmış işler |
 | `tests/` | Firestore, Storage ve Telegram'ı taklit eden testler |

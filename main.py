@@ -21,6 +21,7 @@ from google.cloud.firestore_v1.base_query import FieldFilter
 
 import bigfiles
 import metronome
+import music
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 WEBHOOK_SECRET = os.environ["WEBHOOK_SECRET"]
@@ -67,6 +68,7 @@ BOT_COMMANDS = [
     ("katil", "Gruba katıl"),
     ("ayril", "Hatırlatmalardan çık"),
     ("sil", "Kendi kaydına yanıt vererek sil"),
+    ("kaydet", "Bot kaydetmediyse kayda yanıt vererek kaydet"),
     ("yenilink", "Takvim linkini yenile"),
     ("yardim", "Nasıl çalışır"),
 ]
@@ -408,7 +410,6 @@ def handle_update(upd):
     media, kind = find_media(msg)
 
     if media:
-        upsert_member(user)
         save_recording(msg, user, media, kind)
         return
 
@@ -479,7 +480,7 @@ def media_type(media, kind):
     return mime, re.sub(r"[^a-z0-9]", "", ext)[:5] or "bin"
 
 
-def save_recording(msg, user, media, kind):
+def save_recording(msg, user, media, kind, force=False):
     chat_id = msg["chat"]["id"]
     mid = msg["message_id"]
     if db.collection("recordings").document(f"{chat_id}_{mid}").get().exists:
@@ -487,7 +488,7 @@ def save_recording(msg, user, media, kind):
     mime, ext = media_type(media, kind)
 
     if (media.get("file_size") or 0) > MAX_TG_BYTES:
-        save_large_recording(msg, user, media, kind, mime, ext)
+        save_large_recording(msg, user, media, kind, mime, ext, force)
         return
 
     info = tg("getFile", file_id=media["file_id"])
@@ -502,10 +503,10 @@ def save_recording(msg, user, media, kind):
         alert("save", "Bir kayıt indirilemedi, loglara bak.")
         send(chat_id, "Bu kayıt kaydedilemedi. Lütfen tekrar gönder.", mid)
         return
-    store_recording(msg, user, media, kind, r.content, mime, ext)
+    store_recording(msg, user, media, kind, r.content, mime, ext, force)
 
 
-def save_large_recording(msg, user, media, kind, mime, ext):
+def save_large_recording(msg, user, media, kind, mime, ext, force=False):
     """Files above 20 MB come over MTProto in the background, shrunk before storing."""
     chat_id = msg["chat"]["id"]
     mid = msg["message_id"]
@@ -522,14 +523,14 @@ def save_large_recording(msg, user, media, kind, mime, ext):
         return
     lock.set({"started": dt.datetime.now(TZ)})
     tg("setMessageReaction", chat_id=chat_id, message_id=mid, reaction=[{"type": "emoji", "emoji": "👀"}])
-    run_in_background(process_large_recording, msg, user, media, kind, mime, ext)
+    run_in_background(process_large_recording, msg, user, media, kind, mime, ext, force)
 
 
 def run_in_background(fn, *args):
     threading.Thread(target=fn, args=args, daemon=True).start()
 
 
-def process_large_recording(msg, user, media, kind, mime, ext):
+def process_large_recording(msg, user, media, kind, mime, ext, force=False):
     chat_id = msg["chat"]["id"]
     mid = msg["message_id"]
     tmp = tempfile.mkdtemp()
@@ -543,7 +544,8 @@ def process_large_recording(msg, user, media, kind, mime, ext):
             path = src
         with open(path, "rb") as f:
             content = f.read()
-        store_recording(msg, user, media, kind, content, mime, ext)
+        if not store_recording(msg, user, media, kind, content, mime, ext, force):
+            tg("setMessageReaction", chat_id=chat_id, message_id=mid, reaction=[])
     except Exception:
         log.exception("large download failed")
         alert("large", "Büyük bir kayıt indirilemedi, loglara bak.")
@@ -567,10 +569,16 @@ def downloader():
     return _downloader
 
 
-def store_recording(msg, user, media, kind, content, mime, ext):
+def store_recording(msg, user, media, kind, content, mime, ext, force=False):
+    """Returns False when the take holds no music and is left out of the practice log."""
     chat_id = msg["chat"]["id"]
     mid = msg["message_id"]
     ref = db.collection("recordings").document(f"{chat_id}_{mid}")
+    # Voice messages that are only talk are chat between members, not practice
+    if not force and not music.has_music(content):
+        log.info("no music in %s_%s, not recorded", chat_id, mid)
+        return False
+    upsert_member(user)
     try:
         ts = dt.datetime.fromtimestamp(msg["date"], TZ)
         day = practice_day(ts)
@@ -601,13 +609,14 @@ def store_recording(msg, user, media, kind, content, mime, ext):
         log.exception("save failed")
         alert("save", "Bir kayıt kaydedilemedi, loglara bak.")
         send(chat_id, "Bu kayıt kaydedilemedi. Lütfen tekrar gönder.", mid)
-        return
+        return True
     tg("setMessageReaction", chat_id=chat_id, message_id=mid,
        reaction=[{"type": "emoji", "emoji": "🔥" if has_metro else "❤"}])
     try:
         check_milestones(chat_id, user)
     except Exception:
         log.exception("milestone check failed")
+    return True
 
 
 def check_milestones(chat_id, user):
@@ -656,7 +665,8 @@ def handle_command(cmd, msg, user):
              "Her gün pratikten kısa bir sesli mesaj, video ya da ses dosyası at, ben kaydedip ❤ koyarım.\n"
              "Metronomla çalışırsan (hoparlörden, kayıtta duyulacak şekilde) 🔥 alırsın.\n"
              "Haftada 1 gün atlama hakkın var (🃏 joker), seri bozulmaz.\n"
-             "Not eklemek için mesaja açıklama yaz ya da kendi kaydına yanıt ver.\n\n"
+             "Not eklemek için mesaja açıklama yaz ya da kendi kaydına yanıt ver.\n"
+             "İçinde müzik olmayan sesli mesajlar (sadece konuşma) pratik sayılmaz.\n\n"
              "/bugun – bugün kim kaydetti\n"
              "/seri – son 21 gün (🔥 metronomlu, ❤ kaydetti, 🃏 joker, 💔 atladı)\n"
              "/detay – herkesin istatistikleri\n"
@@ -664,6 +674,7 @@ def handle_command(cmd, msg, user):
              "/katil – kayıt atmadan gruba katıl\n"
              "/ayril – hatırlatmalardan çık\n"
              "/sil – kendi kaydına yanıt olarak yaz, kayıt silinir\n"
+             "/kaydet – bot pratiğini konuşma sanıp kaydetmediyse kayda yanıt olarak yaz\n"
              "/yenilink – takvim linki grup dışına çıktıysa yenisini oluştur", mid)
     elif cmd == "/katil":
         upsert_member(user)
@@ -733,6 +744,27 @@ def handle_command(cmd, msg, user):
                       f"Yeni link: {PUBLIC_URL}/?t={new}", mid)
     elif cmd == "/sil":
         delete_recording(msg, user)
+    elif cmd == "/kaydet":
+        force_save(msg, user)
+
+
+def force_save(msg, user):
+    chat_id = msg["chat"]["id"]
+    mid = msg["message_id"]
+    rep = msg.get("reply_to_message") or {}
+    media, kind = find_media(rep)
+    if not media:
+        send(chat_id, "Kaydetmek istediğin ses ya da videoya yanıt olarak /kaydet yaz.", mid)
+        return
+    owner = rep.get("from") or {}
+    admin = get_admin_id()
+    if str(owner.get("id")) != str(user["id"]) and not (admin and str(admin) == str(user["id"])):
+        send(chat_id, "Sadece kendi kaydını kaydedebilirsin.", mid)
+        return
+    if db.collection("recordings").document(f"{chat_id}_{rep['message_id']}").get().exists:
+        send(chat_id, "Bu kayıt zaten kaydedilmiş.", mid)
+        return
+    save_recording(rep, owner, media, kind, force=True)
 
 
 def delete_recording(msg, user):

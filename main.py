@@ -1324,8 +1324,16 @@ table.sum th{font-family:var(--f-mono);font-weight:400;font-size:11.5px;color:va
 table.sum td.n{font-family:var(--f-mono)}
 table.sum tr.inactive td{color:var(--muted)}
 .miss-n{color:var(--miss)}
+.sumbox summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px}
+.sumbox summary::-webkit-details-marker{display:none}
+.sumbox summary::after{content:"▸";color:var(--muted);transition:transform .15s}
+.sumbox[open] summary::after{transform:rotate(90deg)}
+.sumbox summary h2{margin:0}
+.sumbox:not([open]){display:block}
 .day{display:grid;gap:8px;scroll-margin-top:16px}
-.day:target .dayhead h2{color:var(--accent)}
+.js .day{display:none}
+.js .day.show{display:grid}
+.cell.sel{background:color-mix(in srgb,var(--accent) 18%,var(--bg));border-color:var(--accent)}
 .dayhead{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:baseline}
 .rec{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:grid;gap:8px;min-width:0}
 .rec .head{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:baseline}
@@ -1384,13 +1392,13 @@ table.sum tr.inactive td{color:var(--muted)}
       <span><i class="dot joker"></i>joker</span>
       <span><i class="dot missed"></i>kaydetmedi</span>
       <span><i class="dot pending"></i>bugün bekleniyor</span>
-      <span>Bir güne dokun, o günün kayıtlarına git.</span>
+      <span>Bir güne dokun, o günün kayıtları aşağıda görünür.</span>
     </div>
   </section>
 
   {% if summary %}
-  <section class="panel">
-    <h2>{{ month_label }} özeti</h2>
+  <details class="panel sumbox">
+    <summary><h2>{{ month_label }} özeti</h2></summary>
     <div class="tablewrap"><table class="sum">
       <tr><th>Kişi</th><th>Seri</th><th title="Kaydettiği gün">Gün</th><th title="Metronomlu gün">🔥 Gün</th><th title="Kaçırdığı gün">Kaçırdı</th></tr>
       {% for s in summary %}
@@ -1401,7 +1409,7 @@ table.sum tr.inactive td{color:var(--muted)}
       </tr>
       {% endfor %}
     </table></div>
-  </section>
+  </details>
   {% endif %}
 
   <section style="display:grid;gap:22px">
@@ -1432,6 +1440,30 @@ table.sum tr.inactive td{color:var(--muted)}
   </section>
 </div>
 <script>
+// Only the chosen day's recordings are shown; without script every day stays visible
+document.body.classList.add("js");
+function showDay(iso, scroll) {
+  var el = document.getElementById("d-" + iso);
+  if (!el) return false;
+  document.querySelectorAll(".day.show").forEach(function (d) { d.classList.remove("show"); });
+  document.querySelectorAll(".cell.sel").forEach(function (c) { c.classList.remove("sel"); });
+  el.classList.add("show");
+  var cell = document.querySelector('.cell[href="#d-' + iso + '"]');
+  if (cell) cell.classList.add("sel");
+  if (scroll) el.scrollIntoView({behavior: "smooth", block: "start"});
+  return true;
+}
+document.querySelectorAll(".cell[href]").forEach(function (c) {
+  c.addEventListener("click", function (e) {
+    e.preventDefault();
+    var iso = c.getAttribute("href").slice(3);
+    showDay(iso, true);
+    history.replaceState(null, "", "#d-" + iso);
+  });
+});
+var first = document.querySelector(".day");
+var fromHash = location.hash.indexOf("#d-") === 0 && showDay(location.hash.slice(3), true);
+if (!fromHash && first) showDay(first.id.slice(2), false);
 {% if who %}
 document.querySelectorAll("audio[data-id],video[data-id]").forEach(function (el) {
   el.addEventListener("play", function () {

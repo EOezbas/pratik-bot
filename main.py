@@ -867,7 +867,13 @@ def handle_private(msg):
         return
 
     cel = load_celebrations()
+    current = dict(MILESTONE_LABELS)
+    used_by = {v["uid"]: current[k] for k, v in cel["assigned"].items() if k in current}
     if media:
+        if media["uid"] in used_by:
+            send(chat_id, f"Bu zaten {used_by[media['uid']]} kutlamasında kullanılıyor. "
+                          "Taşımak istersen önce oradan /sil ile kaldır.")
+            return
         celebrations_ref().set({"pending": media}, merge=True)
         tg("sendMessage", chat_id=chat_id, text="Bu hangi kutlama için?", reply_markup=milestone_keyboard())
     elif raw == "İptal":
@@ -878,6 +884,11 @@ def handle_private(msg):
             tg("sendMessage", chat_id=chat_id, text="Önce bir sticker ya da GIF at.",
                reply_markup={"remove_keyboard": True})
             return
+        other = used_by.get(cel["pending"]["uid"])
+        if other and other != raw:
+            tg("sendMessage", chat_id=chat_id, text=f"Bu zaten {other} kutlamasında kullanılıyor.",
+               reply_markup={"remove_keyboard": True})
+            return
         cel["assigned"][LABEL_TO_KEY[raw]] = cel["pending"]
         celebrations_ref().set({"assigned": cel["assigned"], "pending": None})
         tg("sendMessage", chat_id=chat_id, text=f"✅ {raw} kutlaması için ayarlandı.",
@@ -886,12 +897,18 @@ def handle_private(msg):
         # In the background so the webhook answers at once and Telegram does not resend the command
         run_in_background(list_celebrations, chat_id, cel["assigned"])
     else:
-        target = celebration_media(msg.get("reply_to_message") or {})
+        rep = msg.get("reply_to_message") or {}
+        target = celebration_media(rep)
         if not target:
             send(chat_id, "Kaldırmak istediğin sticker ya da GIF'e yanıt verip /sil yaz.")
             return
-        keep = {k: v for k, v in cel["assigned"].items() if v["uid"] != target["uid"]}
-        celebrations_ref().set({"assigned": keep}, merge=True)
+        # The listed GIFs carry their milestone as caption; only that one is removed
+        only = LABEL_TO_KEY.get((rep.get("caption") or "").strip())
+        keep = {k: v for k, v in cel["assigned"].items()
+                if v["uid"] != target["uid"] or (only and k != only)}
+        if len(keep) < len(cel["assigned"]):
+            # update replaces the map; set(merge=True) would merge it and keep the removed keys
+            celebrations_ref().update({"assigned": keep})
         removed = [label for k, label in MILESTONE_LABELS if k in cel["assigned"] and k not in keep]
         send(chat_id, f"🗑 Kaldırıldı: {', '.join(removed)}. Bu kutlamalarda büyük emoji gidecek."
              if removed else "Bu hiçbir kutlamaya atanmamış.")

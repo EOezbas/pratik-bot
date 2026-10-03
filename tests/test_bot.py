@@ -776,3 +776,21 @@ def test_celebration_list_labels_gifs(env, monkeypatch):
     env.message(EMRE, chat=private, text="7 gün")
     env.message(EMRE, chat=private, text="/kutlamalar")
     assert ("sendAnimation", {"chat_id": 1, "animation": "G7", "caption": "7 gün"}) in env.tg.calls
+
+
+def test_celebration_removed_from_one_milestone_and_no_duplicates(env):
+    make_admin(env)
+    private = {"id": 1, "type": "private"}
+    gif = {"file_id": "G", "file_unique_id": "uG"}
+    env.fs.store.setdefault("config", {})["celebrations"] = {
+        "assigned": {"streak7": {"type": "animation", "file_id": "G", "uid": "uG"},
+                     "count50": {"type": "animation", "file_id": "G", "uid": "uG"}},
+        "pending": None}
+    env.message(EMRE, chat=private, text="/sil",
+                reply_to_message={"message_id": 9, "animation": gif, "caption": "50. kayıt"})
+    assigned = env.fs.store["config"]["celebrations"]["assigned"]
+    assert "count50" not in assigned and "streak7" in assigned
+
+    env.message(EMRE, chat=private, animation=gif)
+    assert "7 gün kutlamasında kullanılıyor" in env.tg.sent(1)[-1]
+    assert env.fs.store["config"]["celebrations"]["pending"] is None

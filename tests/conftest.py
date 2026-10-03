@@ -43,7 +43,7 @@ class Doc:
         d = self.s.setdefault(self.c, {}).get(self.id)
         return Snap(self.id, None if d is None else dict(d))
 
-    def set(self, data, merge=False):
+    def set(self, data, merge=False, _deep=True):
         cur = self.s.setdefault(self.c, {})
         base = dict(cur.get(self.id, {})) if merge else {}
         for k, v in data.items():
@@ -51,6 +51,9 @@ class Doc:
                 base.pop(k, None)
             elif isinstance(v, fs_mod.ArrayUnion):
                 base[k] = list(base.get(k, [])) + [x for x in v.values if x not in base.get(k, [])]
+            elif merge and _deep and isinstance(v, dict) and isinstance(base.get(k), dict):
+                # Like Firestore: set(merge=True) merges nested maps instead of replacing them
+                base[k] = {**base[k], **v}
             else:
                 base[k] = v
         cur[self.id] = base
@@ -58,7 +61,7 @@ class Doc:
     def update(self, data):
         if self.id not in self.s.get(self.c, {}):
             raise KeyError(self.id)
-        self.set(data, merge=True)
+        self.set(data, merge=True, _deep=False)
 
     def delete(self):
         self.s.get(self.c, {}).pop(self.id, None)

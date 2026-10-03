@@ -39,6 +39,7 @@ COOKIE = "pz"
 WHO_COOKIE = "pz_who"
 ALERT_INTERVAL_SEC = 600
 TOKEN_CACHE_SEC = 30
+# Defaults; the admin can change them in private chat with /ekle and /cikar
 STREAK_MILESTONES = {7, 14, 21, 30, 60, 365}
 COUNT_MILESTONES = {1, 5, 31, 50, 69, 100}
 MAX_TG_BYTES = 20 * 1024 * 1024
@@ -622,7 +623,8 @@ def check_milestones(chat_id, user):
     reached = set(member.get("milestones") or [])
     new_keys, lines, emoji, cel_key = [], [], "🎉", None
     start = current_chain_start(hist)
-    if cur in STREAK_MILESTONES and start:
+    cel = load_celebrations()
+    if cur in cel["streaks"] and start:
         key = f"streak{cur}:{start.isoformat()}"
         if key not in reached:
             new_keys.append(key)
@@ -630,7 +632,7 @@ def check_milestones(chat_id, user):
             cel_key = f"streak{cur}"
             if cur >= 100:
                 emoji = "🏆"
-    if st["count"] in COUNT_MILESTONES:
+    if st["count"] in cel["counts"]:
         key = f"count{st['count']}"
         if key not in reached:
             new_keys.append(key)
@@ -767,9 +769,9 @@ def delete_recording(msg, user):
     send(chat_id, "🗑 Kayıt takvimden silindi, ama Telegram'daki mesajı silemedim "
                   "(48 saatten eski olabilir). Mesajı elle silebilirsin.", mid)
 
-MILESTONE_LABELS = [(f"streak{n}", f"{n} gün") for n in sorted(STREAK_MILESTONES)] + \
-                   [(f"count{n}", "İlk kayıt" if n == 1 else f"{n}. kayıt") for n in sorted(COUNT_MILESTONES)]
-LABEL_TO_KEY = {label: key for key, label in MILESTONE_LABELS}
+def milestone_labels(cel):
+    return [(f"streak{n}", f"{n} gün") for n in sorted(cel["streaks"])] + \
+           [(f"count{n}", "İlk kayıt" if n == 1 else f"{n}. kayıt") for n in sorted(cel["counts"])]
 
 
 def celebrations_ref():
@@ -779,7 +781,10 @@ def celebrations_ref():
 def load_celebrations():
     snap = celebrations_ref().get()
     data = snap.to_dict() if snap.exists else {}
-    return {"assigned": dict(data.get("assigned") or {}), "pending": data.get("pending")}
+    streaks, counts = data.get("streaks"), data.get("counts")
+    return {"assigned": dict(data.get("assigned") or {}), "pending": data.get("pending"),
+            "streaks": set(STREAK_MILESTONES if streaks is None else streaks),
+            "counts": set(COUNT_MILESTONES if counts is None else counts)}
 
 
 def celebration_media(msg):
@@ -806,14 +811,16 @@ def send_celebration(chat_id, key, emoji):
 SEND_GAP_SEC = 1.0  # stays under Telegram's per-chat rate limit
 
 
-def list_celebrations(chat_id, assigned):
+def list_celebrations(chat_id, cel):
+    assigned, labels = cel["assigned"], milestone_labels(cel)
     lines = ["Kutlamalar:"]
-    for key, label in MILESTONE_LABELS:
+    for key, label in labels:
         item = assigned.get(key)
         lines.append(f"{label}: {'sticker' if item and item['type'] == 'sticker' else 'GIF' if item else '– büyük emoji'}")
     lines.append("\nAyarlananlar aşağıda. Kaldırmak istediğine yanıt verip /sil yaz.")
+    lines.append("Kutlama eklemek ya da çıkarmak için: /ekle 40 gün, /cikar 100 kayıt")
     tg("sendMessage", chat_id=chat_id, text="\n".join(lines))
-    for key, label in MILESTONE_LABELS:
+    for key, label in labels:
         item = assigned.get(key)
         if not item:
             continue
@@ -827,8 +834,8 @@ def list_celebrations(chat_id, assigned):
             tg("sendAnimation", chat_id=chat_id, animation=item["file_id"], caption=label)
 
 
-def milestone_keyboard():
-    labels = [label for _, label in MILESTONE_LABELS]
+def milestone_keyboard(cel):
+    labels = [label for _, label in milestone_labels(cel)]
     rows = [labels[i:i + 3] for i in range(0, len(labels), 3)] + [["İptal"]]
     return {"keyboard": [[{"text": t} for t in row] for row in rows],
             "one_time_keyboard": True, "resize_keyboard": True}
@@ -840,7 +847,7 @@ def handle_private(msg):
     raw = (msg.get("text") or "").strip()
     text = raw.lower()
     cmd = text.split()[0].split("@")[0] if text else ""
-    cmd = cmd.replace("ö", "o").replace("ı", "i").replace("ş", "s")
+    cmd = cmd.replace("ö", "o").replace("ı", "i").replace("ş", "s").replace("ç", "c")
     admin = get_admin_id()
     is_admin = bool(admin) and str(admin) == str(user.get("id"))
 
@@ -857,17 +864,19 @@ def handle_private(msg):
                           "Kutlamalarda gidecek sticker ya da GIF'leri de bana buradan atabilirsin.")
         return
 
+    cel = load_celebrations()
+    labels = milestone_labels(cel)
+    label_to_key = {label: key for key, label in labels}
     media = celebration_media(msg)
-    cel_command = cmd in ("/kutlamalar", "/sil")
-    if not (media or cel_command or raw in LABEL_TO_KEY or raw == "İptal"):
+    cel_command = cmd in ("/kutlamalar", "/sil", "/ekle", "/cikar")
+    if not (media or cel_command or raw in label_to_key or raw == "İptal"):
         send(chat_id, "Bu bot sadece pratik grubunda çalışıyor.")
         return
     if not is_admin:
         send(chat_id, "Kutlamaları sadece yönetici değiştirebilir.")
         return
 
-    cel = load_celebrations()
-    current = dict(MILESTONE_LABELS)
+    current = dict(labels)
     used_by = {v["uid"]: current[k] for k, v in cel["assigned"].items() if k in current}
     if media:
         if media["uid"] in used_by:
@@ -875,11 +884,11 @@ def handle_private(msg):
                           "Taşımak istersen önce oradan /sil ile kaldır.")
             return
         celebrations_ref().set({"pending": media}, merge=True)
-        tg("sendMessage", chat_id=chat_id, text="Bu hangi kutlama için?", reply_markup=milestone_keyboard())
+        tg("sendMessage", chat_id=chat_id, text="Bu hangi kutlama için?", reply_markup=milestone_keyboard(cel))
     elif raw == "İptal":
         celebrations_ref().set({"pending": None}, merge=True)
         tg("sendMessage", chat_id=chat_id, text="İptal edildi.", reply_markup={"remove_keyboard": True})
-    elif raw in LABEL_TO_KEY:
+    elif raw in label_to_key:
         if not cel["pending"]:
             tg("sendMessage", chat_id=chat_id, text="Önce bir sticker ya da GIF at.",
                reply_markup={"remove_keyboard": True})
@@ -889,13 +898,16 @@ def handle_private(msg):
             tg("sendMessage", chat_id=chat_id, text=f"Bu zaten {other} kutlamasında kullanılıyor.",
                reply_markup={"remove_keyboard": True})
             return
-        cel["assigned"][LABEL_TO_KEY[raw]] = cel["pending"]
-        celebrations_ref().set({"assigned": cel["assigned"], "pending": None})
+        cel["assigned"][label_to_key[raw]] = cel["pending"]
+        celebrations_ref().set({"pending": None}, merge=True)
+        celebrations_ref().update({"assigned": cel["assigned"]})
         tg("sendMessage", chat_id=chat_id, text=f"✅ {raw} kutlaması için ayarlandı.",
            reply_markup={"remove_keyboard": True})
     elif cmd == "/kutlamalar":
         # In the background so the webhook answers at once and Telegram does not resend the command
-        run_in_background(list_celebrations, chat_id, cel["assigned"])
+        run_in_background(list_celebrations, chat_id, cel)
+    elif cmd in ("/ekle", "/cikar"):
+        change_milestone(chat_id, cmd == "/ekle", text.split()[1:], cel)
     else:
         rep = msg.get("reply_to_message") or {}
         target = celebration_media(rep)
@@ -903,13 +915,13 @@ def handle_private(msg):
             send(chat_id, "Kaldırmak istediğin sticker ya da GIF'e yanıt verip /sil yaz.")
             return
         # The listed GIFs carry their milestone as caption; only that one is removed
-        only = LABEL_TO_KEY.get((rep.get("caption") or "").strip())
+        only = label_to_key.get((rep.get("caption") or "").strip())
         keep = {k: v for k, v in cel["assigned"].items()
                 if v["uid"] != target["uid"] or (only and k != only)}
         if len(keep) < len(cel["assigned"]):
             # update replaces the map; set(merge=True) would merge it and keep the removed keys
             celebrations_ref().update({"assigned": keep})
-        removed = [label for k, label in MILESTONE_LABELS if k in cel["assigned"] and k not in keep]
+        removed = [label for k, label in labels if k in cel["assigned"] and k not in keep]
         send(chat_id, f"🗑 Kaldırıldı: {', '.join(removed)}. Bu kutlamalarda büyük emoji gidecek."
              if removed else "Bu hiçbir kutlamaya atanmamış.")
 
@@ -1408,3 +1420,23 @@ if (ch) ch.addEventListener("click", function (e) {
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "8080")), debug=True)
+
+
+def change_milestone(chat_id, add, args, cel):
+    n = int(args[0]) if args and args[0].isdigit() else 0
+    unit = args[1][:1] if len(args) > 1 else ""
+    field_name = {"g": "streaks", "k": "counts"}.get(unit)
+    if not field_name or n < 1 or n > 10000 or (field_name == "streaks" and n < 2):
+        send(chat_id, "Örnek: /ekle 40 gün, /ekle 200 kayıt, /cikar 14 gün")
+        return
+    label = f"{n} gün" if field_name == "streaks" else "İlk kayıt" if n == 1 else f"{n}. kayıt"
+    values = set(cel[field_name])
+    if add == (n in values):
+        send(chat_id, f"{label} zaten {'var' if add else 'yok'}.")
+        return
+    values = values | {n} if add else values - {n}
+    celebrations_ref().set({field_name: sorted(values)}, merge=True)
+    if add:
+        send(chat_id, f"✅ {label} eklendi. GIF'ini bana atıp {label} butonunu seçebilirsin.")
+    else:
+        send(chat_id, f"🗑 {label} çıkarıldı. Atadığın GIF saklanıyor, geri eklersen yine gelir.")

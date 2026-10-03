@@ -340,12 +340,12 @@ def test_webhook_subscribes_to_reactions(env):
 def test_milestones_31_and_69(env):
     m = env.main
     assert not {31, 69} & m.STREAK_MILESTONES and {31, 69} <= m.COUNT_MILESTONES
-    labels = [b["text"] for row in m.milestone_keyboard()["keyboard"] for b in row]
+    labels = [b["text"] for row in m.milestone_keyboard(m.load_celebrations())["keyboard"] for b in row]
     assert {"31. kayıt", "69. kayıt"} <= set(labels) and not {"31 gün", "69 gün"} & set(labels)
 
 
 def test_milestone_list(env):
-    labels = [b["text"] for row in env.main.milestone_keyboard()["keyboard"] for b in row]
+    labels = [b["text"] for row in env.main.milestone_keyboard(env.main.load_celebrations())["keyboard"] for b in row]
     assert labels == ["7 gün", "14 gün", "21 gün", "30 gün", "60 gün", "365 gün", "İlk kayıt",
                       "5. kayıt", "31. kayıt", "50. kayıt", "69. kayıt", "100. kayıt", "İptal"]
 
@@ -358,7 +358,7 @@ def test_first_and_fifth_recording(env, plain_wav):
         env.add_recording(2, back)
     env.voice(CAN, plain_wav)
     assert any("Can</a> 5. kaydını attı!" in t for t in env.tg.sent())
-    labels = [b["text"] for row in env.main.milestone_keyboard()["keyboard"] for b in row]
+    labels = [b["text"] for row in env.main.milestone_keyboard(env.main.load_celebrations())["keyboard"] for b in row]
     assert "İlk kayıt" in labels and "5. kayıt" in labels
 
 
@@ -794,3 +794,25 @@ def test_celebration_removed_from_one_milestone_and_no_duplicates(env):
     env.message(EMRE, chat=private, animation=gif)
     assert "7 gün kutlamasında kullanılıyor" in env.tg.sent(1)[-1]
     assert env.fs.store["config"]["celebrations"]["pending"] is None
+
+
+def test_admin_adds_and_removes_milestones(env, plain_wav):
+    make_admin(env)
+    private = {"id": 1, "type": "private"}
+    env.message(CAN, chat={"id": 2, "type": "private"}, text="/ekle 3 gün")
+    assert "sadece yönetici" in env.tg.sent(2)[-1]
+    env.message(EMRE, chat=private, text="/ekle 3 gün")
+    assert "3 gün eklendi" in env.tg.sent(1)[-1]
+    env.message(EMRE, chat=private, text="/çıkar 7 gün")
+    env.message(EMRE, chat=private, text="/ekle 2 kayıt")
+    env.message(EMRE, chat=private, text="/ekle kırk")
+    assert "Örnek" in env.tg.sent(1)[-1]
+    m = env.main
+    labels = [b["text"] for row in m.milestone_keyboard(m.load_celebrations())["keyboard"] for b in row]
+    assert "3 gün" in labels and "7 gün" not in labels and "2. kayıt" in labels
+
+    env.set_first_day(1, 10)
+    for back in range(1, 3):
+        env.add_recording(1, back)
+    env.voice(EMRE, plain_wav)
+    assert any("3 günlük seriye" in t for t in env.tg.sent())

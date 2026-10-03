@@ -69,6 +69,7 @@ BOT_COMMANDS = [
     ("ayril", "Hatırlatmalardan çık"),
     ("sil", "Kendi kaydına yanıt vererek sil"),
     ("kaydet", "Bot kaydetmediyse kayda yanıt vererek kaydet"),
+    ("cikar", "Kaydı pratikten çıkar, mesaj grupta kalır"),
     ("yenilink", "Takvim linkini yenile"),
     ("yardim", "Nasıl çalışır"),
 ]
@@ -675,6 +676,7 @@ def handle_command(cmd, msg, user):
              "/ayril – hatırlatmalardan çık\n"
              "/sil – kendi kaydına yanıt olarak yaz, kayıt silinir\n"
              "/kaydet – bot pratiğini konuşma sanıp kaydetmediyse kayda yanıt olarak yaz\n"
+             "/cikar – pratik olmayan bir kayda yanıt olarak yaz, mesaj grupta kalır ama pratik sayılmaz\n"
              "/yenilink – takvim linki grup dışına çıktıysa yenisini oluştur", mid)
     elif cmd == "/katil":
         upsert_member(user)
@@ -746,6 +748,8 @@ def handle_command(cmd, msg, user):
         delete_recording(msg, user)
     elif cmd == "/kaydet":
         force_save(msg, user)
+    elif cmd == "/cikar":
+        delete_recording(msg, user, keep_message=True)
 
 
 def force_save(msg, user):
@@ -767,12 +771,13 @@ def force_save(msg, user):
     save_recording(rep, owner, media, kind, force=True)
 
 
-def delete_recording(msg, user):
+def delete_recording(msg, user, keep_message=False):
+    """/sil removes the take everywhere; /cikar only drops it from the practice log."""
     chat_id = msg["chat"]["id"]
     mid = msg["message_id"]
     rep = msg.get("reply_to_message")
     if not rep:
-        send(chat_id, "Silmek istediğin kayda yanıt olarak /sil yaz.", mid)
+        send(chat_id, f"Bu komutu kayda yanıt olarak yaz: {'/cikar' if keep_message else '/sil'}", mid)
         return
     ref = db.collection("recordings").document(f'{chat_id}_{rep["message_id"]}')
     snap = ref.get()
@@ -782,7 +787,7 @@ def delete_recording(msg, user):
     r = snap.to_dict()
     is_admin = str(get_admin_id() or "") == str(user["id"])
     if str(r.get("user_id")) != str(user["id"]) and not is_admin:
-        send(chat_id, "Sadece kendi kayıtlarını silebilirsin.", mid)
+        send(chat_id, f"Sadece kendi kayıtlarını {'çıkarabilirsin' if keep_message else 'silebilirsin'}.", mid)
         return
     try:
         blob = bucket.get_blob(r["gcs_path"])
@@ -792,6 +797,10 @@ def delete_recording(msg, user):
     except Exception:
         log.exception("delete failed")
         send(chat_id, "Kayıt silinemedi. Biraz sonra tekrar dene.", mid)
+        return
+    if keep_message:
+        tg("setMessageReaction", chat_id=chat_id, message_id=rep["message_id"], reaction=[])
+        send(chat_id, "↩️ Pratikten çıkarıldı, mesaj grupta duruyor.", mid)
         return
     if tg("deleteMessage", chat_id=chat_id, message_id=rep["message_id"]):
         tg("deleteMessage", chat_id=chat_id, message_id=mid)

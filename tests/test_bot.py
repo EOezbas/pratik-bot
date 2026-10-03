@@ -841,3 +841,14 @@ def test_force_save_by_owner_only(env):
     assert env.fs.store["recordings"][f"-1001_{vid}"]["user_id"] == "1"
     assert ("setMessageReaction", {"chat_id": -1001, "message_id": vid,
                                    "reaction": [{"type": "emoji", "emoji": "❤"}]}) in env.tg.calls
+
+
+def test_cikar_drops_recording_but_keeps_message(env, plain_wav):
+    join_all(env, EMRE, CAN)
+    vid = env.voice(EMRE, plain_wav)
+    env.command(CAN, "/cikar", reply_to_message={"message_id": vid})
+    assert "Sadece kendi" in env.tg.sent()[-1]
+    env.command(EMRE, "/çıkar", reply_to_message={"message_id": vid})
+    assert f"-1001_{vid}" not in env.fs.store["recordings"]
+    assert "Pratikten çıkarıldı" in env.tg.sent()[-1]
+    assert not [p for m, p in env.tg.calls if m == "deleteMessage"]

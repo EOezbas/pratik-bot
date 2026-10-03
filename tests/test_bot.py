@@ -297,7 +297,7 @@ def test_admin_assigns_celebration_per_milestone(env, plain_wav):
     assert assigned["streak7"]["file_id"] == "S7" and assigned["streak30"]["file_id"] == "G30"
 
     env.message(EMRE, chat=private, text="/kutlamalar")
-    assert any("50 gün: – büyük emoji" in t for t in env.tg.sent(1))
+    assert any("60 gün: – büyük emoji" in t for t in env.tg.sent(1))
     env.message(EMRE, chat=private, text="/sil", reply_to_message={"message_id": 9, "animation": {"file_id": "G30", "file_unique_id": "u30"}})
     assert "streak30" not in env.fs.store["config"]["celebrations"]["assigned"]
 
@@ -339,6 +339,12 @@ def test_milestones_31_and_69(env):
     assert not {31, 69} & m.STREAK_MILESTONES and {31, 69} <= m.COUNT_MILESTONES
     labels = [b["text"] for row in m.milestone_keyboard()["keyboard"] for b in row]
     assert {"31. kayıt", "69. kayıt"} <= set(labels) and not {"31 gün", "69 gün"} & set(labels)
+
+
+def test_milestone_list(env):
+    labels = [b["text"] for row in env.main.milestone_keyboard()["keyboard"] for b in row]
+    assert labels == ["7 gün", "14 gün", "21 gün", "30 gün", "60 gün", "365 gün", "İlk kayıt",
+                      "5. kayıt", "31. kayıt", "50. kayıt", "69. kayıt", "100. kayıt", "İptal"]
 
 
 def test_first_and_fifth_recording(env, plain_wav):

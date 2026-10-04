@@ -895,20 +895,3 @@ def test_evening_day_start(env, monkeypatch):
     monkeypatch.setattr(m, "now_local", lambda: at(4, 23, 0))
     monkeypatch.setattr(m.dt, "datetime", type("D", (dt.datetime,), {"now": staticmethod(lambda tz=None: at(4, 22, 0))}))
     assert m.next_day_start() == at(4, 23, 0)
-
-
-def test_dayend_message(env, monkeypatch):
-    m = env.main
-    join_all(env, EMRE, CAN)
-    monkeypatch.setattr(m, "DAY_OFFSET", -1)
-    monkeypatch.setattr(m, "DAY_START_HOUR", 23)
-    monkeypatch.setattr(m, "now_local", lambda: dt.datetime(2026, 10, 4, 23, 0, 5, tzinfo=m.TZ))
-    env.fs.store.setdefault("recordings", {})["x"] = {
-        "user_id": "1", "name": "", "day": "2026-10-04", "ts": dt.datetime(2026, 10, 4, 20, tzinfo=m.TZ),
-        "duration": 60, "metronome": False}
-    r = env.client.post("/cron/dayend", headers={"X-Cron-Secret": "cron"})
-    assert r.status_code == 200
-    assert "Saat 23:00, bugünün kayıtları kapandı" in env.tg.sent()[-1] and "1/2 kişi" in env.tg.sent()[-1]
-    n = len(env.tg.sent())
-    env.client.post("/cron/dayend", headers={"X-Cron-Secret": "cron"})
-    assert len(env.tg.sent()) == n

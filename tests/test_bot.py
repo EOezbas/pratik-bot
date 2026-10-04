@@ -852,3 +852,24 @@ def test_cikar_drops_recording_but_keeps_message(env, plain_wav):
     assert f"-1001_{vid}" not in env.fs.store["recordings"]
     assert "Pratikten çıkarıldı" in env.tg.sent()[-1]
     assert not [p for m, p in env.tg.calls if m == "deleteMessage"]
+
+
+def test_chat_mode_skips_recordings_until_ended(env, plain_wav):
+    join_all(env, EMRE)
+    env.command(EMRE, "/sohbet")
+    assert "Sohbet modu" in env.tg.sent()[-1]
+    vid = env.voice(EMRE, plain_wav)
+    assert f"-1001_{vid}" not in env.fs.store.get("recordings", {})
+    env.command(EMRE, "/pratik")
+    vid = env.voice(EMRE, plain_wav)
+    assert f"-1001_{vid}" in env.fs.store["recordings"]
+
+
+def test_chat_mode_ends_at_day_start(env, plain_wav):
+    join_all(env, EMRE)
+    env.command(EMRE, "/sohbet")
+    until = env.fs.store["members"]["1"]["chat_until"]
+    assert until.hour == env.main.DAY_START_HOUR and until > env.main.dt.datetime.now(env.main.TZ)
+    env.fs.store["members"]["1"]["chat_until"] = env.main.dt.datetime.now(env.main.TZ) - env.main.dt.timedelta(minutes=1)
+    vid = env.voice(EMRE, plain_wav)
+    assert f"-1001_{vid}" in env.fs.store["recordings"]

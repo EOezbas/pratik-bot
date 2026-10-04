@@ -69,6 +69,8 @@ BOT_COMMANDS = [
     ("ayril", "Hatırlatmalardan çık"),
     ("sil", "Kendi kaydına yanıt vererek sil"),
     ("kaydet", "Bot kaydetmediyse kayda yanıt vererek kaydet"),
+    ("sohbet", "Attıklarını takvime ekleme"),
+    ("pratik", "Sohbet modunu bitir"),
     ("cikar", "Kaydı pratikten çıkar, mesaj grupta kalır"),
     ("yenilink", "Takvim linkini yenile"),
     ("yardim", "Nasıl çalışır"),
@@ -411,7 +413,8 @@ def handle_update(upd):
     media, kind = find_media(msg)
 
     if media:
-        save_recording(msg, user, media, kind)
+        if not chat_mode(user["id"]):
+            save_recording(msg, user, media, kind)
         return
 
     text = (msg.get("text") or "").strip()
@@ -479,6 +482,19 @@ def media_type(media, kind):
     if not ext:
         ext = (mimetypes.guess_extension(mime) or ".bin").lstrip(".")
     return mime, re.sub(r"[^a-z0-9]", "", ext)[:5] or "bin"
+
+
+def chat_mode(uid):
+    """True while the member has switched off recording with /sohbet."""
+    snap = db.collection("members").document(str(uid)).get()
+    until = field(snap, "chat_until") if snap.exists else None
+    return bool(until) and until > dt.datetime.now(TZ)
+
+
+def next_day_start():
+    now = dt.datetime.now(TZ)
+    start = dt.datetime.combine(practice_day(now) + dt.timedelta(days=1), dt.time(DAY_START_HOUR), TZ)
+    return start
 
 
 def save_recording(msg, user, media, kind, force=False):
@@ -676,6 +692,7 @@ def handle_command(cmd, msg, user):
              "/ayril – hatırlatmalardan çık\n"
              "/sil – kendi kaydına yanıt olarak yaz, kayıt silinir\n"
              "/kaydet – bot pratiğini konuşma sanıp kaydetmediyse kayda yanıt olarak yaz\n"
+             "/sohbet – bundan sonra attıkların takvime eklenmez, /pratik ile biter\n"
              "/cikar – pratik olmayan bir kayda yanıt olarak yaz, mesaj grupta kalır ama pratik sayılmaz\n"
              "/yenilink – takvim linki grup dışına çıktıysa yenisini oluştur", mid)
     elif cmd == "/katil":
@@ -748,6 +765,16 @@ def handle_command(cmd, msg, user):
         delete_recording(msg, user)
     elif cmd == "/kaydet":
         force_save(msg, user)
+    elif cmd == "/sohbet":
+        upsert_member(user, activate=False)
+        db.collection("members").document(str(user["id"])).set({"chat_until": next_day_start()}, merge=True)
+        send(chat_id, "🔇 Sohbet modu: bundan sonra attığın ses ve videolar takvime eklenmeyecek.\n"
+                      f"Bitirmek için /pratik yaz. Unutursan gece {DAY_START_HOUR:02d}:00'te kendiliğinden biter.", mid)
+    elif cmd == "/pratik":
+        ref = db.collection("members").document(str(user["id"]))
+        if ref.get().exists:
+            ref.set({"chat_until": None}, merge=True)
+        send(chat_id, "🎵 Sohbet modu bitti, attıkların yine takvime eklenecek.", mid)
     elif cmd == "/cikar":
         delete_recording(msg, user, keep_message=True)
 

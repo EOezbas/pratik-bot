@@ -765,6 +765,10 @@ def handle_command(cmd, msg, user):
         delete_recording(msg, user)
     elif cmd == "/kaydet":
         force_save(msg, user)
+    elif cmd == "/sohbet" and chat_mode(user["id"]):
+        send(chat_id, "🔇 Zaten sohbet modundasın. Bitirmek için /pratik yaz.", mid)
+    elif cmd == "/pratik" and not chat_mode(user["id"]):
+        send(chat_id, "🎵 Zaten pratik modundasın.", mid)
     elif cmd == "/sohbet":
         upsert_member(user, activate=False)
         db.collection("members").document(str(user["id"])).set({"chat_until": next_day_start()}, merge=True)

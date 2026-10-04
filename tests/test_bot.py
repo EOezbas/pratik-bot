@@ -873,3 +873,12 @@ def test_chat_mode_ends_at_day_start(env, plain_wav):
     env.fs.store["members"]["1"]["chat_until"] = env.main.dt.datetime.now(env.main.TZ) - env.main.dt.timedelta(minutes=1)
     vid = env.voice(EMRE, plain_wav)
     assert f"-1001_{vid}" in env.fs.store["recordings"]
+
+
+def test_chat_mode_repeated_commands(env):
+    join_all(env, EMRE)
+    env.command(EMRE, "/pratik")
+    assert "Zaten pratik modundasın" in env.tg.sent()[-1]
+    env.command(EMRE, "/sohbet")
+    env.command(EMRE, "/sohbet")
+    assert "Zaten sohbet modundasın" in env.tg.sent()[-1]

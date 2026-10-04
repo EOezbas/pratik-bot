@@ -386,6 +386,11 @@ def song_of(rec):
     else:
         return None
     title = re.sub(r"[_\s]+", " ", title).strip(" -")
+    # Date stamps such as 261004_ or 2026-10-04 in file names are not part of the song
+    title = re.sub(r"^(\d{6,8}|\d{4}[-.]\d{2}[-.]\d{2}|\d{2}[-.]\d{2}[-.]\d{2,4})\b[\s\-]*", "", title)
+    title = re.sub(r"[\s\-]*\b(\d{6,8}|\d{4}[-.]\d{2}[-.]\d{2})$", "", title).strip(" -") or title
+    if " " not in title and "-" in title:
+        title = title.replace("-", " ")
     tail = _DONE_END_RE.search(_fold(title))
     if tail:
         title = title[:tail.start()].strip(" -")

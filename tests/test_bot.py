@@ -944,6 +944,10 @@ def test_song_parsing(env):
     assert so({"caption": "Wonderwall\nbaştan sona çaldım"})[3]
     assert so({"caption": "Wonderwall\nComplete"})[3]
     assert so({"caption": "Yesterday ✅"})[3]
+    new = so({"file_name": "261004_goodbye-stranger.mp3", "caption": "tamami"})
+    old = so({"file_name": "Goodbye Stranger.mp3", "caption": "intro"})
+    assert new[0] == "goodbye stranger" and new[1] == old[1] and new[3]
+    assert so({"file_name": "2026-10-04 Wonderwall.m4a"})[0] == "Wonderwall"
     assert so({}) is None
 
 

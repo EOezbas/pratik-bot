@@ -204,6 +204,8 @@ def env():
         import main
         main = importlib.reload(main)
         main._last_alert.clear()
+        # Reactions in tests must not depend on the time of day the suite runs
+        main.real_time_badge, main.time_badge = main.time_badge, lambda ts: None
         yield Env(main, fs, bucket, telegram)
 
 

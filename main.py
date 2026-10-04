@@ -72,6 +72,8 @@ BOT_COMMANDS = [
     ("sil", "Kendi kaydına yanıt vererek sil"),
     ("kaydet", "Bot kaydetmediyse kayda yanıt vererek kaydet"),
     ("sohbet", "Attıklarını takvime ekleme"),
+    ("ilham", "Rastgele bir pratik fikri"),
+    ("zar", "Zar at"),
     ("pratik", "Sohbet modunu bitir"),
     ("cikar", "Kaydı pratikten çıkar, mesaj grupta kalır"),
     ("yenilink", "Takvim linkini yenile"),
@@ -353,6 +355,29 @@ def current_chain_start(hist):
     return start
 
 
+IDEAS = [
+    "Bugün sadece pentatonik, metronom 70'te.",
+    "Sevdiğin bir solonun ilk 4 ölçüsünü kulaktan çıkar.",
+    "Bildiğin bir parçayı yarı hızda, her notayı temiz çalarak kaydet.",
+    "5 dakika boyunca sadece tek bir akorla doğaçlama yap.",
+    "Bir gamı üçlü aralıklarla çal: 1-3, 2-4, 3-5...",
+    "Metronomu sadece 2. ve 4. vuruşa koy, groove'u sen tut.",
+    "Bugün en sevmediğin tonda çal.",
+    "Bir parçayı hiç tekrar etmeden baştan sona tek seferde kaydet.",
+    "Sadece iki nota kullanarak bir melodi uydur.",
+    "Bildiğin bir riffi bir oktav yukarıda ya da aşağıda çal.",
+    "10 dakika sadece ritim: aynı akoru farklı ritim kalıplarıyla çal.",
+    "Dün çaldığın şeyi bugün 10 bpm daha hızlı dene.",
+    "Gözlerin kapalı çal, sadece kulağına güven.",
+    "Bir şarkının melodisini önce söyle, sonra çal.",
+    "Bugün dinamik günü: aynı cümleyi çok yumuşak ve çok sert çal.",
+    "Bir parçanın en zor 2 ölçüsünü seç, sadece onları çalış.",
+    "Bildiğin bir akor dizisini başka bir tona aktar.",
+    "Bugün staccato günü: her notayı kısa ve net çal.",
+    "1 dakikalık bir kayıt at, içinde bir hata bile olmasın.",
+    "Grupta başkasının dün attığı parçayı sen de dene.",
+]
+
 MARK = {"metro": "🔥", "done": "❤", "joker": "🃏", "missed": "💔"}
 
 
@@ -630,12 +655,22 @@ def store_recording(msg, user, media, kind, content, mime, ext, force=False):
         send(chat_id, "Bu kayıt kaydedilemedi. Lütfen tekrar gönder.", mid)
         return True
     tg("setMessageReaction", chat_id=chat_id, message_id=mid,
-       reaction=[{"type": "emoji", "emoji": "🔥" if has_metro else "❤"}])
+       reaction=[{"type": "emoji", "emoji": "🔥" if has_metro else time_badge(ts) or "❤"}])
     try:
         check_milestones(chat_id, user)
     except Exception:
         log.exception("milestone check failed")
     return True
+
+
+def time_badge(ts):
+    """Secret reactions for takes sent late at night or early in the morning."""
+    hour = ts.astimezone(TZ).hour
+    if hour < 5:
+        return "🌚"
+    if hour < 7:
+        return "⚡"
+    return None
 
 
 def check_milestones(chat_id, user):
@@ -695,6 +730,8 @@ def handle_command(cmd, msg, user):
              "/sil – kendi kaydına yanıt olarak yaz, kayıt silinir\n"
              "/kaydet – bot pratiğini konuşma sanıp kaydetmediyse kayda yanıt olarak yaz\n"
              "/sohbet – bundan sonra attıkların takvime eklenmez, /pratik ile biter\n"
+             "/atesle, /alkis – yanıt verdiğin mesaja 🔥 ya da 👏 bırakır\n"
+             "/zar – zar atar · /ilham – rastgele bir pratik fikri\n"
              "/cikar – pratik olmayan bir kayda yanıt olarak yaz, mesaj grupta kalır ama pratik sayılmaz\n"
              "/yenilink – takvim linki grup dışına çıktıysa yenisini oluştur", mid)
     elif cmd == "/katil":
@@ -765,6 +802,16 @@ def handle_command(cmd, msg, user):
                       f"Yeni link: {PUBLIC_URL}/?t={new}", mid)
     elif cmd == "/sil":
         delete_recording(msg, user)
+    elif cmd in ("/atesle", "/alkis"):
+        rep = msg.get("reply_to_message")
+        if rep:
+            tg("setMessageReaction", chat_id=chat_id, message_id=rep["message_id"],
+               reaction=[{"type": "emoji", "emoji": "🔥" if cmd == "/atesle" else "👏"}])
+            tg("deleteMessage", chat_id=chat_id, message_id=mid)
+    elif cmd == "/zar":
+        tg("sendDice", chat_id=chat_id, emoji="🎲")
+    elif cmd == "/ilham":
+        send(chat_id, f"💡 {secrets.choice(IDEAS)}", mid)
     elif cmd == "/kaydet":
         force_save(msg, user)
     elif cmd == "/sohbet" and chat_mode(user["id"]):

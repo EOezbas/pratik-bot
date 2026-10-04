@@ -895,3 +895,27 @@ def test_evening_day_start(env, monkeypatch):
     monkeypatch.setattr(m, "now_local", lambda: at(4, 23, 0))
     monkeypatch.setattr(m.dt, "datetime", type("D", (dt.datetime,), {"now": staticmethod(lambda tz=None: at(4, 22, 0))}))
     assert m.next_day_start() == at(4, 23, 0)
+
+
+def test_atesle_only_reacts(env):
+    env.command(EMRE, "/ateşle", reply_to_message={"message_id": 77})
+    assert ("setMessageReaction", {"chat_id": -1001, "message_id": 77,
+                                   "reaction": [{"type": "emoji", "emoji": "🔥"}]}) in env.tg.calls
+    assert not env.fs.store.get("recordings")
+
+
+def test_fun_commands(env):
+    env.command(EMRE, "/alkış", reply_to_message={"message_id": 5})
+    assert ("setMessageReaction", {"chat_id": -1001, "message_id": 5,
+                                   "reaction": [{"type": "emoji", "emoji": "👏"}]}) in env.tg.calls
+    env.command(EMRE, "/zar")
+    assert ("sendDice", {"chat_id": -1001, "emoji": "🎲"}) in env.tg.calls
+    env.command(EMRE, "/ilham")
+    assert env.tg.sent()[-1].startswith("💡 ")
+
+
+def test_time_badges(env):
+    m = env.main
+    at = lambda h: dt.datetime(2026, 10, 4, h, 30, tzinfo=m.TZ)
+    badge = m.real_time_badge
+    assert badge(at(2)) == "🌚" and badge(at(6)) == "⚡" and badge(at(12)) is None

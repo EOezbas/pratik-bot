@@ -8,7 +8,7 @@ Arkadaş grubunun günlük müzik pratiği alışkanlığı için bir Telegram b
 - **Müzik kontrolü:** İçinde müzik (çalma ya da şarkı söyleme) olmayan, sadece konuşma olan sesli mesajlar ve videolar pratik sayılmaz; bot bunlara dokunmaz. Bunu YAMNet adlı küçük bir ses sınıflandırma modeli yapar; kayıtta birkaç saniye müzik duyması yeterli, emin olamazsa kaydı pratik sayar. Bot bir pratiği yanlışlıkla atlarsa kayda yanıt verip `/kaydet` yazmak yeterli.
 - **Metronom algılama:** Kayıtta duyulabilir bir metronom varsa bot 🔥 koyar ve BPM'i kaydeder. Mekanik metronomlar gibi biraz kayan tıklar da kabul edilir; bunun bedeli, çok düzenli çalan (zamanlama sapması ~10 ms altı) birinin metronomsuz kaydının da 🔥 alabilmesi. Metronomsuz kayıtlarda tempo çalınan notalardan tahmin edilir ve takvimde gri "♩ ~84 bpm" olarak gösterilir; tempo düzensizse (rubato, serbest çalım) gösterilmez. Notaların hızı vuruşun iki katıysa bot önce vurgulara bakar, karar veremezse 125 bpm üstünde yavaş olan vuruşu seçer; bu yüzden gerçekten çok hızlı (125+) çalınan parçalar yarı tempo görünebilir. Bu bilgi takibi etkilemez.
 - **Seri ve joker:** Haftada (Pazartesi–Pazar) atlanan ilk gün 🃏 joker sayılır ve seriyi bozmaz.
-- **Gün başlangıcı:** Gece 04:00'e kadar atılan kayıtlar önceki güne sayılır.
+- **Gün sınırı:** Gün saat 23:00'te kapanır; bundan sonra atılan kayıtlar ertesi güne sayılır. Bot o saatte gruba haber verir.
 - **Hatırlatma:** Her gün 21:00'de o gün kayıt atmayanlar grupta etiketlenir.
 - **Haftalık özet:** Pazar 21:30'da haftanın özeti ve "metronom ustası" gruba gönderilir.
 - **Kilometre taşları:** Belirli seri ve kayıt sayılarına ulaşıldığında gruba kutlama mesajı gider.
@@ -46,6 +46,7 @@ Telegram grubu ──webhook──▶ Cloud Run (Flask, main.py)
                                 └── metronome.py    ffmpeg + numpy/scipy ile metronom algılama
 
 Cloud Scheduler ──▶ /cron/reminder  (her gün 21:00)
+                ──▶ /cron/dayend    (her gün, gün sınırında)
                 ──▶ /cron/weekly    (Pazar 21:30)
 ```
 
@@ -85,7 +86,7 @@ gcloud run services update pratik-bot --region europe-west3 --update-env-vars DE
 | `BOT_TOKEN` | BotFather'dan alınan token |
 | `WEBHOOK_SECRET`, `CRON_SECRET`, `WEB_TOKEN` | `deploy.sh`'ın ürettiği gizli anahtarlar |
 | `BUCKET` | Kayıtların tutulduğu Cloud Storage bucket'ı |
-| `DAY_START_HOUR` | Günün başladığı saat (varsayılan 4) |
+| `DAY_START_HOUR` | Günün başladığı saat: 4 ise gece 04:00'e kadar atılanlar önceki güne, 23 ise 23:00'ten sonra atılanlar ertesi güne sayılır (varsayılan 4) |
 | `TZ_NAME` | Saat dilimi (varsayılan Europe/Berlin) |
 | `ALLOWED_CHAT_ID` | Botu tek bir gruba kilitlemek için (isteğe bağlı) |
 | `TG_API_ID`, `TG_API_HASH` | my.telegram.org'dan; 20 MB üstü dosyalar için (isteğe bağlı) |

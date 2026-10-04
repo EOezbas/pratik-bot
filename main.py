@@ -33,6 +33,8 @@ PUBLIC_URL = os.environ.get("PUBLIC_URL", "").rstrip("/")
 TZ = ZoneInfo(os.environ.get("TZ_NAME", "Europe/Berlin"))
 # Recordings before this hour count for the previous day
 DAY_START_HOUR = int(os.environ.get("DAY_START_HOUR", "4"))
+# Hours from midnight to the start of a practice day; an evening hour (e.g. 23) starts the next day early
+DAY_OFFSET = DAY_START_HOUR if DAY_START_HOUR < 12 else DAY_START_HOUR - 24
 
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 FILE_API = f"https://api.telegram.org/file/bot{BOT_TOKEN}"
@@ -84,7 +86,7 @@ def now_local():
 
 
 def practice_day(ts):
-    return (ts - dt.timedelta(hours=DAY_START_HOUR)).date()
+    return (ts - dt.timedelta(hours=DAY_OFFSET)).date()
 
 
 def today():
@@ -493,8 +495,8 @@ def chat_mode(uid):
 
 def next_day_start():
     now = dt.datetime.now(TZ)
-    start = dt.datetime.combine(practice_day(now) + dt.timedelta(days=1), dt.time(DAY_START_HOUR), TZ)
-    return start
+    midnight = dt.datetime.combine(practice_day(now) + dt.timedelta(days=1), dt.time(0), TZ)
+    return midnight + dt.timedelta(hours=DAY_OFFSET)
 
 
 def save_recording(msg, user, media, kind, force=False):
@@ -773,7 +775,7 @@ def handle_command(cmd, msg, user):
         upsert_member(user, activate=False)
         db.collection("members").document(str(user["id"])).set({"chat_until": next_day_start()}, merge=True)
         send(chat_id, "🔇 Sohbet modu: bundan sonra attığın ses ve videolar takvime eklenmeyecek.\n"
-                      f"Bitirmek için /pratik yaz. Unutursan gece {DAY_START_HOUR:02d}:00'te kendiliğinden biter.", mid)
+                      f"Bitirmek için /pratik yaz. Unutursan saat {DAY_START_HOUR:02d}:00'te kendiliğinden biter.", mid)
     elif cmd == "/pratik":
         ref = db.collection("members").document(str(user["id"]))
         if ref.get().exists:
@@ -1047,6 +1049,25 @@ def cron_reminder():
         lines.append(f"• {mention(m['id'], m['name'])}{tail}")
     done_n = len(members) - len(missing)
     lines.append(f"\n{done_n}/{len(members)} kişi kaydetti.")
+    send(chat_id, "\n".join(lines))
+    return "sent"
+
+
+@app.post("/cron/dayend")
+def cron_dayend():
+    if not hmac.compare_digest(request.headers.get("X-Cron-Secret", ""), CRON_SECRET):
+        abort(403)
+    chat_id = get_chat_id()
+    if not chat_id:
+        return "no chat"
+    # Runs right at the day boundary, so the day that just closed is yesterday
+    closed = (practice_day(now_local() + dt.timedelta(minutes=5)) - dt.timedelta(days=1)).isoformat()
+    members = [m for m in load_members() if m.get("active")]
+    stats = load_stats()
+    done_n = sum(1 for m in members if closed in stats.get(m["id"], empty_stats())["days"])
+    lines = [f"🌙 Saat {DAY_START_HOUR:02d}:00, bugünün kayıtları kapandı. Bundan sonra atılanlar yarına sayılır."]
+    if members:
+        lines.append(f"{done_n}/{len(members)} kişi kaydetti.")
     send(chat_id, "\n".join(lines))
     return "sent"
 

@@ -50,7 +50,7 @@ Gruba **ilk mesaj** atıldığında bot o grubu kendine kaydeder ve sadece orada
 - `/yenilink`: Takvim linkini yeniler.
 - **Yönetici:** Bota özelden `/yonetici` yaz; hata uyarıları sana gelir.
 
-Gece 04:00'e kadar atılan kayıtlar önceki güne sayılır. Bu saati `DAY_START_HOUR` ile değiştirebilirsin.
+Gece 04:00'e kadar atılan kayıtlar önceki güne sayılır. Bu saati `DAY_START_HOUR` ile değiştirebilirsin; akşam bir saat (ör. 23) verirsen gün o saatte kapanır ve sonraki kayıtlar ertesi güne sayılır.
 
 ## Ayarlar
 

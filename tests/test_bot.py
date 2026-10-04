@@ -918,4 +918,12 @@ def test_time_badges(env):
     m = env.main
     at = lambda h: dt.datetime(2026, 10, 4, h, 30, tzinfo=m.TZ)
     badge = m.real_time_badge
-    assert badge(at(2)) == "🌚" and badge(at(6)) == "⚡" and badge(at(12)) is None
+    assert badge(at(2)) in m.NIGHT_EMOJI and badge(at(9)) in m.MORNING_EMOJI and badge(at(10)) is None
+
+
+def test_time_badge_sent_as_message(env, plain_wav, monkeypatch):
+    monkeypatch.setattr(env.main, "time_badge", lambda ts: "🦉")
+    vid = env.voice(EMRE, plain_wav)
+    assert env.tg.sent()[-1] == "🦉" or "🦉" in env.tg.sent()
+    assert ("setMessageReaction", {"chat_id": -1001, "message_id": vid,
+                                   "reaction": [{"type": "emoji", "emoji": "❤"}]}) in env.tg.calls

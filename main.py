@@ -655,7 +655,11 @@ def store_recording(msg, user, media, kind, content, mime, ext, force=False):
         send(chat_id, "Bu kayıt kaydedilemedi. Lütfen tekrar gönder.", mid)
         return True
     tg("setMessageReaction", chat_id=chat_id, message_id=mid,
-       reaction=[{"type": "emoji", "emoji": "🔥" if has_metro else time_badge(ts) or "❤"}])
+       reaction=[{"type": "emoji", "emoji": "🔥" if has_metro else "❤"}])
+    badge = time_badge(ts)
+    if badge:
+        # A message with a single emoji shows up large and animated
+        send(chat_id, badge, mid)
     try:
         check_milestones(chat_id, user)
     except Exception:
@@ -663,13 +667,17 @@ def store_recording(msg, user, media, kind, content, mime, ext, force=False):
     return True
 
 
+NIGHT_EMOJI = ["🦉", "🌙", "🌚", "🌌", "⭐", "🌃"]
+MORNING_EMOJI = ["🌅", "☀️", "🐓", "☕", "🌄", "🌞"]
+
+
 def time_badge(ts):
-    """Secret reactions for takes sent late at night or early in the morning."""
+    """Secret emoji for takes sent late at night or in the morning."""
     hour = ts.astimezone(TZ).hour
     if hour < 5:
-        return "🌚"
-    if hour < 7:
-        return "⚡"
+        return secrets.choice(NIGHT_EMOJI)
+    if hour < 10:
+        return secrets.choice(MORNING_EMOJI)
     return None
 
 

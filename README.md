@@ -31,6 +31,8 @@ Arkadaş grubunun günlük müzik pratiği alışkanlığı için bir Telegram b
 | `/kaydet` | Bot kaydı konuşma sanıp kaydetmediyse kayda yanıt olarak yazınca kaydedilir (kendi kaydın; yönetici herkesinkini) |
 | `/cikar` | Pratik sayılmaması gereken bir kayda yanıt olarak yazınca kayıt takvimden çıkarılır, mesaj grupta kalır (kendi kaydın; yönetici herkesinkini) |
 | `/sohbet`, `/pratik` | `/sohbet` sonrası attığın ses ve videolar takvime eklenmez; `/pratik` ile ya da gece gün başlangıcında biter |
+| `/sarkilarim` | Yazan kişinin bitmeyen şarkıları. Şarkı adı dosya adından (yoksa notun ilk satırından), nereye kadar çalındığı nottan alınır; dosya adında ya da notta "bitti", "tamamı", "komple", "full", "complete", ✅ gibi bir ifade geçerse şarkı bitmiş sayılır |
+| `/bitti` | Şarkının bir kaydına yanıt olarak yazınca şarkı bitmiş sayılır |
 | `/atesle`, `/alkis` | Yanıt verilen mesaja 🔥 ya da 👏 bırakır, başka bir şeyi etkilemez |
 | `/zar`, `/ilham` | Zar atar · rastgele bir pratik fikri yazar |
 | `/yenilink` | Takvim linkini yeniler, eski link çalışmaz olur |

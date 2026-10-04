@@ -927,3 +927,41 @@ def test_time_badge_sent_as_message(env, plain_wav, monkeypatch):
     assert env.tg.sent()[-1] == "🦉" or "🦉" in env.tg.sent()
     assert ("setMessageReaction", {"chat_id": -1001, "message_id": vid,
                                    "reaction": [{"type": "emoji", "emoji": "❤"}]}) in env.tg.calls
+
+
+def test_song_parsing(env):
+    so = env.main.song_of
+    a = so({"file_name": "Jamiroquai_-_Dont_Give_Hate_a_Chance.mp3", "caption": "2. nakarata kadar"})
+    b = so({"file_name": "jamiroquai - dont give hate a chance 2.mp3", "caption": ""})
+    c = so({"file_name": "Dont Give Hate a Chance take3.m4a", "caption": "tamamı"})
+    assert a[0] == "Jamiroquai - Dont Give Hate a Chance" and a[2] == "2. nakarata kadar" and not a[3]
+    assert a[1] == b[1] and c[3]
+    assert not so({"file_name": "Full Moon.mp3"})[3]
+    full = so({"file_name": "Little Black Submarines FULL.mp3"})
+    assert full[3] and full[0] == "Little Black Submarines"
+    w = so({"caption": "Wonderwall\nintro + 1. kıta"})
+    assert w[0] == "Wonderwall" and w[2] == "intro + 1. kıta" and not w[3]
+    assert so({"caption": "Wonderwall\nbaştan sona çaldım"})[3]
+    assert so({"caption": "Wonderwall\nComplete"})[3]
+    assert so({"caption": "Yesterday ✅"})[3]
+    assert so({}) is None
+
+
+def test_open_songs_command(env, plain_wav):
+    join_all(env, EMRE, CAN)
+    env.tg.next_file = plain_wav
+    env.message(EMRE, audio={"file_id": "f", "duration": 20, "file_name": "Wonderwall.mp3"}, caption="intro")
+    env.tg.next_file = plain_wav
+    last = env.message(EMRE, audio={"file_id": "f", "duration": 20, "file_name": "wonderwall_2.mp3"}, caption="1. kıtaya kadar")
+    env.tg.next_file = plain_wav
+    env.message(EMRE, audio={"file_id": "f", "duration": 20, "file_name": "Yesterday.mp3"}, caption="full")
+    env.tg.next_file = plain_wav
+    env.message(CAN, audio={"file_id": "f", "duration": 20, "file_name": "Creep.mp3"})
+    env.command(EMRE, "/şarkılarım")
+    out = env.tg.sent()[-1]
+    assert "Wonderwall — 1. kıtaya kadar" in out and "Yesterday" not in out and "Creep" not in out
+    env.command(CAN, "/bitti", reply_to_message={"message_id": last})
+    assert "Sadece kendi" in env.tg.sent()[-1]
+    env.command(EMRE, "/bitti", reply_to_message={"message_id": last})
+    env.command(EMRE, "/sarkilarim")
+    assert "Bitmeyen şarkın yok" in env.tg.sent()[-1]

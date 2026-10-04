@@ -72,6 +72,8 @@ BOT_COMMANDS = [
     ("sil", "Kendi kaydına yanıt vererek sil"),
     ("kaydet", "Bot kaydetmediyse kayda yanıt vererek kaydet"),
     ("sohbet", "Attıklarını takvime ekleme"),
+    ("sarkilarim", "Bitmeyen şarkıların"),
+    ("bitti", "Şarkının kaydına yanıt vererek bitir"),
     ("ilham", "Rastgele bir pratik fikri"),
     ("zar", "Zar at"),
     ("pratik", "Sohbet modunu bitir"),
@@ -353,6 +355,74 @@ def current_chain_start(hist):
         elif status in ("metro", "done") and start is None:
             start = d
     return start
+
+
+# Words in a file name or note that mean the whole song was played
+DONE_WORDS = ["bitti", "bitirdim", "tamami", "tamamı", "tamamladim", "tamamladım",
+              "komple", "full", "complete", "completed", "finished", "done", "sonuna kadar",
+              "bastan sona", "baştan sona", "eksiksiz", "✅"]
+_FOLD = str.maketrans("çğıöşüâîû", "cgiosuaiu")
+
+
+def _fold(text):
+    return text.replace("İ", "i").replace("I", "ı").lower().translate(_FOLD)
+
+
+_DONE_ALT = "|".join(sorted({re.escape(_fold(w)) for w in DONE_WORDS}, key=len, reverse=True))
+_DONE_RE = re.compile(r"(?<![\w])(" + _DONE_ALT + r")(?![\w])")
+# In a title only a trailing marker counts, so "Full Moon" stays a song name
+_DONE_END_RE = re.compile(r"[\s\-_(\[]*(?<![\w])(" + _DONE_ALT + r")[\s)\]!.]*$")
+
+
+def song_of(rec):
+    """(title, key, progress, finished) from the file name and note, or None."""
+    fname = (rec.get("file_name") or "").strip()
+    caption = (rec.get("caption") or "").strip()
+    if fname:
+        title = re.sub(r"\.[A-Za-z0-9]{1,5}$", "", fname)
+        progress = caption
+    elif caption:
+        title, _, progress = caption.partition("\n")
+    else:
+        return None
+    title = re.sub(r"[_\s]+", " ", title).strip(" -")
+    tail = _DONE_END_RE.search(_fold(title))
+    if tail:
+        title = title[:tail.start()].strip(" -")
+    title = re.sub(r"[\s\-]*\b(take|v|versiyon|version|kayıt|kayit|deneme)?\s*\d+$", "", title,
+                   flags=re.IGNORECASE).strip(" -") or title
+    finished = bool(rec.get("song_done")) or bool(tail) or bool(_DONE_RE.search(_fold(progress)))
+    key = _fold(title)
+    key = re.sub(r"\b(take|v|versiyon|version|kayit|deneme)\s*\d*\b", " ", key)
+    key = re.sub(r"[^a-z0-9]+", " ", key)
+    key = re.sub(r"(\s\d+)+$", "", key.strip()).strip()
+    if not key:
+        return None
+    return title, key, progress.strip(), finished
+
+
+def open_songs(uid):
+    songs = {}
+    for snap in db.collection("recordings").where(filter=FieldFilter("user_id", "==", str(uid))).stream():
+        r = snap.to_dict()
+        info = song_of(r)
+        if not info:
+            continue
+        title, key, progress, finished = info
+        s = songs.setdefault(key, {"title": title, "finished": False, "last": None, "progress": "",
+                                   "order": None, "p_order": None})
+        # Message ids break ties between takes sent within the same second
+        mid = snap.id.rsplit("_", 1)[-1]
+        order = (r["ts"], int(mid) if mid.isdigit() else 0)
+        s["finished"] |= finished
+        if s["order"] is None or order > s["order"]:
+            s["order"], s["last"] = order, r["ts"]
+            # Keep a capitalized spelling over a later all-lowercase one
+            if title != title.lower() or s["title"] == s["title"].lower():
+                s["title"] = title
+        if progress and (s["p_order"] is None or order > s["p_order"]):
+            s["progress"], s["p_order"] = progress, order
+    return sorted((s for s in songs.values() if not s["finished"]), key=lambda s: s["order"], reverse=True)
 
 
 IDEAS = [
@@ -738,6 +808,9 @@ def handle_command(cmd, msg, user):
              "/sil – kendi kaydına yanıt olarak yaz, kayıt silinir\n"
              "/kaydet – bot pratiğini konuşma sanıp kaydetmediyse kayda yanıt olarak yaz\n"
              "/sohbet – bundan sonra attıkların takvime eklenmez, /pratik ile biter\n"
+             "/sarkilarim – bitmeyen şarkıların (şarkı adı dosya adından ya da notun ilk satırından, "
+             "nereye kadar çaldığın nottan; notta \"bitti\", \"tamamı\", \"full\" gibi bir şey yazınca biter)\n"
+             "/bitti – şarkının kaydına yanıt olarak yaz, listeden çıkar\n"
              "/atesle, /alkis – yanıt verdiğin mesaja 🔥 ya da 👏 bırakır\n"
              "/zar – zar atar · /ilham – rastgele bir pratik fikri\n"
              "/cikar – pratik olmayan bir kayda yanıt olarak yaz, mesaj grupta kalır ama pratik sayılmaz\n"
@@ -816,6 +889,19 @@ def handle_command(cmd, msg, user):
             tg("setMessageReaction", chat_id=chat_id, message_id=rep["message_id"],
                reaction=[{"type": "emoji", "emoji": "🔥" if cmd == "/atesle" else "👏"}])
             tg("deleteMessage", chat_id=chat_id, message_id=mid)
+    elif cmd == "/sarkilarim":
+        songs = open_songs(user["id"])
+        if not songs:
+            send(chat_id, "🎵 Bitmeyen şarkın yok.", mid)
+        else:
+            lines = ["🎵 <b>Bitmeyen şarkıların</b>"]
+            for sg in songs[:25]:
+                d = sg["last"].astimezone(TZ)
+                note = f" — {html.escape(sg['progress'].splitlines()[0][:80])}" if sg["progress"] else ""
+                lines.append(f"• {html.escape(sg['title'])}{note} ({d.day} {TR_MONTHS[d.month - 1][:3]})")
+            send(chat_id, "\n".join(lines), mid)
+    elif cmd == "/bitti":
+        mark_song_done(msg, user)
     elif cmd == "/zar":
         tg("sendDice", chat_id=chat_id, emoji="🎲")
     elif cmd == "/ilham":
@@ -838,6 +924,27 @@ def handle_command(cmd, msg, user):
         send(chat_id, "🎵 Sohbet modu bitti, attıkların yine takvime eklenecek.", mid)
     elif cmd == "/cikar":
         delete_recording(msg, user, keep_message=True)
+
+
+def mark_song_done(msg, user):
+    chat_id = msg["chat"]["id"]
+    mid = msg["message_id"]
+    rep = msg.get("reply_to_message")
+    ref = db.collection("recordings").document(f'{chat_id}_{rep["message_id"]}') if rep else None
+    snap = ref.get() if ref else None
+    if not snap or not snap.exists:
+        send(chat_id, "Bitirdiğin şarkının kaydına yanıt olarak /bitti yaz.", mid)
+        return
+    r = snap.to_dict()
+    if str(r.get("user_id")) != str(user["id"]):
+        send(chat_id, "Sadece kendi şarkını bitti olarak işaretleyebilirsin.", mid)
+        return
+    info = song_of(r)
+    if not info:
+        send(chat_id, "Bu kaydın şarkı adı yok. Dosya adına ya da notun ilk satırına şarkının adını yaz.", mid)
+        return
+    ref.update({"song_done": True})
+    send(chat_id, f"✅ {html.escape(info[0])} bitti, listenden çıktı.", mid)
 
 
 def force_save(msg, user):

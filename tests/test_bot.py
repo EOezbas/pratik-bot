@@ -909,3 +909,6 @@ def test_dayend_message(env, monkeypatch):
     r = env.client.post("/cron/dayend", headers={"X-Cron-Secret": "cron"})
     assert r.status_code == 200
     assert "Saat 23:00, bugünün kayıtları kapandı" in env.tg.sent()[-1] and "1/2 kişi" in env.tg.sent()[-1]
+    n = len(env.tg.sent())
+    env.client.post("/cron/dayend", headers={"X-Cron-Secret": "cron"})
+    assert len(env.tg.sent()) == n

@@ -1060,14 +1060,19 @@ def cron_dayend():
     chat_id = get_chat_id()
     if not chat_id:
         return "no chat"
+    # One-time announcement of the new day boundary
+    if field(state_ref().get(), "dayend_announced"):
+        return "already sent"
+    state_ref().set({"dayend_announced": True}, merge=True)
     # Runs right at the day boundary, so the day that just closed is yesterday
     closed = (practice_day(now_local() + dt.timedelta(minutes=5)) - dt.timedelta(days=1)).isoformat()
     members = [m for m in load_members() if m.get("active")]
     stats = load_stats()
     done_n = sum(1 for m in members if closed in stats.get(m["id"], empty_stats())["days"])
-    lines = [f"🌙 Saat {DAY_START_HOUR:02d}:00, bugünün kayıtları kapandı. Bundan sonra atılanlar yarına sayılır."]
+    lines = [f"🌙 Saat {DAY_START_HOUR:02d}:00, bugünün kayıtları kapandı.",
+             f"Bundan sonra her gün {DAY_START_HOUR:02d}:00'ten sonra atılan kayıtlar ertesi güne sayılacak."]
     if members:
-        lines.append(f"{done_n}/{len(members)} kişi kaydetti.")
+        lines.append(f"\nBugün {done_n}/{len(members)} kişi kaydetti.")
     send(chat_id, "\n".join(lines))
     return "sent"
 

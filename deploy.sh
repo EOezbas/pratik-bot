@@ -93,7 +93,6 @@ schedule_job() {
 echo "== Scheduled jobs"
 schedule_job "${SERVICE}-hatirlatma" "$REMINDER_CRON" "/cron/reminder"
 schedule_job "${SERVICE}-haftalik" "$WEEKLY_CRON" "/cron/weekly"
-schedule_job "${SERVICE}-gun-sonu" "0 ${DAY_START_HOUR} * * *" "/cron/dayend"
 
 echo
 echo "Done."

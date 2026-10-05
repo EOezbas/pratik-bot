@@ -599,10 +599,25 @@ def next_day_start():
     return midnight + dt.timedelta(hours=DAY_OFFSET)
 
 
+def is_resend(msg, user, media):
+    """True when the member already sent this exact file on the same practice day."""
+    fuid = media.get("file_unique_id")
+    if not fuid:
+        return False
+    day = practice_day(dt.datetime.fromtimestamp(msg["date"], TZ)).isoformat()
+    q = (db.collection("recordings")
+         .where(filter=FieldFilter("user_id", "==", str(user["id"])))
+         .where(filter=FieldFilter("file_uid", "==", fuid)))
+    return any(s.to_dict().get("day") == day for s in q.stream())
+
+
 def save_recording(msg, user, media, kind, force=False):
     chat_id = msg["chat"]["id"]
     mid = msg["message_id"]
     if db.collection("recordings").document(f"{chat_id}_{mid}").get().exists:
+        return
+    if not force and is_resend(msg, user, media):
+        log.info("same file sent again by %s, not recorded", user["id"])
         return
     mime, ext = media_type(media, kind)
 
@@ -720,6 +735,7 @@ def store_recording(msg, user, media, kind, content, mime, ext, force=False):
             "kind": kind,
             "caption": msg.get("caption") or "",
             "file_name": media.get("file_name") or "",
+            "file_uid": media.get("file_unique_id") or "",
             "metronome": has_metro,
             "bpm": bpm,
             "tempo": tempo,

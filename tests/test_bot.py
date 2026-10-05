@@ -969,3 +969,17 @@ def test_open_songs_command(env, plain_wav):
     env.command(EMRE, "/bitti", reply_to_message={"message_id": last})
     env.command(EMRE, "/sarkilarim")
     assert "Bitmeyen şarkın yok" in env.tg.sent()[-1]
+
+
+def test_same_file_twice_same_day_recorded_once(env, plain_wav):
+    join_all(env, EMRE)
+    audio = {"file_id": "f", "file_unique_id": "U1", "duration": 20, "file_name": "Cheat.m4a"}
+    env.tg.next_file = plain_wav
+    a = env.message(EMRE, audio=dict(audio))
+    env.tg.next_file = plain_wav
+    b = env.message(EMRE, audio=dict(audio))
+    recs = env.fs.store["recordings"]
+    assert f"-1001_{a}" in recs and f"-1001_{b}" not in recs
+    env.tg.next_file = plain_wav
+    c = env.message(EMRE, audio={**audio, "file_unique_id": "U2"})
+    assert f"-1001_{c}" in env.fs.store["recordings"]

@@ -93,7 +93,7 @@ def test_reply_adds_note(env, plain_wav):
     vid = env.voice(EMRE, plain_wav)
     env.message(EMRE, text="köprü kısmı", reply_to_message={"message_id": vid, "from": EMRE, "voice": {"file_id": "f"}})
     (rec,) = env.fs.store["recordings"].values()
-    assert rec["caption"] == "köprü kısmı"
+    assert env.main.note_text(rec) == "köprü kısmı"
 
 
 # ---------- commands ----------
@@ -426,7 +426,7 @@ def test_reply_from_others_marks_listened(env, plain_wav):
     env.tg.next_file = plain_wav
     env.message(DENIZ, voice={"file_id": "g", "duration": 20}, reply_to_message=target)
     rec = env.fs.store["recordings"][rec_id]
-    assert sorted(rec["listeners"]) == ["2", "3"] and rec["caption"] == "kendi notum"
+    assert sorted(rec["listeners"]) == ["2", "3"] and env.main.note_text(rec) == "kendi notum"
     assert len(env.fs.store["recordings"]) == 2
 
 
@@ -983,3 +983,25 @@ def test_same_file_twice_same_day_recorded_once(env, plain_wav):
     env.tg.next_file = plain_wav
     c = env.message(EMRE, audio={**audio, "file_unique_id": "U2"})
     assert f"-1001_{c}" in env.fs.store["recordings"]
+
+
+def test_notes_edit_and_delete(env, plain_wav):
+    join_all(env, EMRE, CAN)
+    vid = env.voice(EMRE, plain_wav, caption="Wonderwall")
+    rid = f"-1001_{vid}"
+    n1 = env.message(EMRE, text="intro", reply_to_message={"message_id": vid, "from": EMRE, "voice": {"file_id": "f"}})
+    n2 = env.message(EMRE, text="yanlış not", reply_to_message={"message_id": vid, "from": EMRE, "voice": {"file_id": "f"}})
+    assert env.main.note_text(env.fs.store["recordings"][rid]) == "Wonderwall\nintro\nyanlış not"
+
+    env.main.handle_update({"edited_message": {"message_id": n1, "chat": env.CHAT, "from": EMRE, "text": "1. kıta"}})
+    env.command(CAN, "/notsil", reply_to_message={"message_id": n2})
+    assert "Sadece kendi" in env.tg.sent()[-1]
+    env.command(EMRE, "/notsil", reply_to_message={"message_id": n2})
+    assert env.main.note_text(env.fs.store["recordings"][rid]) == "Wonderwall\n1. kıta"
+
+    # Removing the caption in Telegram clears it
+    env.main.handle_update({"edited_message": {"message_id": vid, "chat": env.CHAT, "from": EMRE, "voice": {"file_id": "f"}}})
+    assert env.main.note_text(env.fs.store["recordings"][rid]) == "1. kıta"
+
+    env.command(EMRE, "/notsil", reply_to_message={"message_id": vid})
+    assert env.main.note_text(env.fs.store["recordings"][rid]) == ""

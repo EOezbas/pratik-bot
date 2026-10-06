@@ -68,7 +68,8 @@ class Doc:
 
 
 class Query:
-    OPS = {">=": lambda a, b: a >= b, "<=": lambda a, b: a <= b, "==": lambda a, b: a == b}
+    OPS = {">=": lambda a, b: a >= b, "<=": lambda a, b: a <= b, "==": lambda a, b: a == b,
+           "array_contains": lambda a, b: b in (a or [])}
 
     def __init__(self, store, coll, filters=()):
         self.s, self.c, self.f = store, coll, list(filters)

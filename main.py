@@ -74,6 +74,7 @@ BOT_COMMANDS = [
     ("sohbet", "Attıklarını takvime ekleme"),
     ("sarkilarim", "Bitmeyen şarkıların"),
     ("bitti", "Şarkının kaydına yanıt vererek bitir"),
+    ("notsil", "Nota ya da kayda yanıt vererek notu sil"),
     ("ilham", "Rastgele bir pratik fikri"),
     ("zar", "Zar at"),
     ("pratik", "Sohbet modunu bitir"),
@@ -377,7 +378,7 @@ _DONE_END_RE = re.compile(r"[\s\-_(\[]*(?<![\w])(" + _DONE_ALT + r")[\s)\]!.]*$"
 def song_of(rec):
     """(title, key, progress, finished) from the file name and note, or None."""
     fname = (rec.get("file_name") or "").strip()
-    caption = (rec.get("caption") or "").strip()
+    caption = note_text(rec)
     if fname:
         title = re.sub(r"\.[A-Za-z0-9]{1,5}$", "", fname)
         progress = caption
@@ -477,11 +478,7 @@ def handle_update(upd):
     msg = upd.get("message")
     edited = upd.get("edited_message")
     if edited:
-        cap = edited.get("caption")
-        if cap is not None:
-            ref = db.collection("recordings").document(f'{edited["chat"]["id"]}_{edited["message_id"]}')
-            if ref.get().exists:
-                ref.update({"caption": cap})
+        handle_edit(edited)
         return
     if not msg:
         return
@@ -533,10 +530,76 @@ def handle_update(upd):
         ref = db.collection("recordings").document(f'{chat["id"]}_{rep["message_id"]}')
         snap = ref.get()
         if snap.exists:
-            old = field(snap, "caption") or ""
-            ref.update({"caption": (old + "\n" + text).strip()})
+            notes = dict(field(snap, "notes") or {})
+            notes[str(msg["message_id"])] = text
+            ref.update({"notes": notes, "note_ids": sorted({*(field(snap, "note_ids") or []), msg["message_id"]})})
             tg("setMessageReaction", chat_id=chat["id"], message_id=msg["message_id"],
                reaction=[{"type": "emoji", "emoji": "✍"}])
+
+
+def note_owner(chat_id, note_mid):
+    """The recording a reply note belongs to, as (ref, data), or None."""
+    q = db.collection("recordings").where(filter=FieldFilter("note_ids", "array_contains", int(note_mid)))
+    for snap in q.stream():
+        if snap.id.startswith(f"{chat_id}_"):
+            return db.collection("recordings").document(snap.id), snap.to_dict()
+    return None
+
+
+def handle_edit(edited):
+    chat_id = edited["chat"]["id"]
+    ref = db.collection("recordings").document(f'{chat_id}_{edited["message_id"]}')
+    snap = ref.get()
+    if snap.exists:
+        # Removing the caption in Telegram arrives as an edit without one
+        ref.update({"caption": edited.get("caption") or ""})
+        return
+    text = (edited.get("text") or "").strip()
+    found = note_owner(chat_id, edited["message_id"]) if text else None
+    if found:
+        nref, data = found
+        notes = dict(data.get("notes") or {})
+        notes[str(edited["message_id"])] = text
+        nref.update({"notes": notes})
+
+
+def note_text(rec):
+    """Caption and reply notes of a recording, oldest first."""
+    notes = rec.get("notes") or {}
+    parts = [rec.get("caption") or ""] + [notes[k] for k in sorted(notes, key=int)]
+    return "\n".join(p for p in parts if p.strip()).strip()
+
+
+def delete_note(msg, user):
+    chat_id = msg["chat"]["id"]
+    mid = msg["message_id"]
+    rep = msg.get("reply_to_message")
+    if not rep:
+        send(chat_id, "Silmek istediğin nota ya da kaydın kendisine yanıt olarak /notsil yaz.", mid)
+        return
+    admin = str(get_admin_id() or "") == str(user["id"])
+    ref = db.collection("recordings").document(f'{chat_id}_{rep["message_id"]}')
+    snap = ref.get()
+    if snap.exists:
+        if str(field(snap, "user_id")) != str(user["id"]) and not admin:
+            send(chat_id, "Sadece kendi kaydının notlarını silebilirsin.", mid)
+            return
+        ref.update({"caption": "", "notes": {}, "note_ids": []})
+        send(chat_id, "🗑 Bu kaydın tüm notları takvimden silindi.", mid)
+        return
+    found = note_owner(chat_id, rep["message_id"])
+    if not found:
+        send(chat_id, "Bu mesaj bir kaydın notu değil.", mid)
+        return
+    nref, data = found
+    if str(data.get("user_id")) != str(user["id"]) and not admin:
+        send(chat_id, "Sadece kendi notlarını silebilirsin.", mid)
+        return
+    notes = dict(data.get("notes") or {})
+    notes.pop(str(rep["message_id"]), None)
+    nref.update({"notes": notes, "note_ids": [i for i in data.get("note_ids") or [] if i != rep["message_id"]]})
+    tg("setMessageReaction", chat_id=chat_id, message_id=rep["message_id"], reaction=[])
+    send(chat_id, "🗑 Not takvimden silindi.", mid)
 
 
 def handle_reaction(r):
@@ -832,6 +895,7 @@ def handle_command(cmd, msg, user):
              "/sarkilarim – bitmeyen şarkıların (şarkı adı dosya adından ya da notun ilk satırından, "
              "nereye kadar çaldığın nottan; notta \"bitti\", \"tamamı\", \"full\" gibi bir şey yazınca biter)\n"
              "/bitti – şarkının kaydına yanıt olarak yaz, listeden çıkar\n"
+             "/notsil – bir notuna yanıt olarak yaz, o not silinir; kaydın kendisine yanıt olarak yazarsan tüm notları silinir\n"
              "/atesle, /alkis – yanıt verdiğin mesaja 🔥 ya da 👏 bırakır\n"
              "/zar – zar atar · /ilham – rastgele bir pratik fikri\n"
              "/cikar – pratik olmayan bir kayda yanıt olarak yaz, mesaj grupta kalır ama pratik sayılmaz\n"
@@ -910,6 +974,8 @@ def handle_command(cmd, msg, user):
             tg("setMessageReaction", chat_id=chat_id, message_id=rep["message_id"],
                reaction=[{"type": "emoji", "emoji": "🔥" if cmd == "/atesle" else "👏"}])
             tg("deleteMessage", chat_id=chat_id, message_id=mid)
+    elif cmd == "/notsil":
+        delete_note(msg, user)
     elif cmd == "/sarkilarim":
         songs = open_songs(user["id"])
         if not songs:
@@ -1380,7 +1446,7 @@ def calendar_page():
                 "id": r["id"], "name": names.get(r["user_id"], r.get("name", "")),
                 "time": r["ts"].astimezone(TZ).strftime("%H:%M"),
                 "duration": fmt_duration(r.get("duration")),
-                "caption": r.get("caption", ""), "mime": r.get("mime", ""),
+                "caption": note_text(r), "mime": r.get("mime", ""),
                 "file_name": r.get("file_name", ""),
                 "video": (r.get("mime") or "").startswith("video/") or r.get("kind") in ("video_note", "video"),
                 "round": r.get("kind") == "video_note",

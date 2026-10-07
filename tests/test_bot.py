@@ -1005,3 +1005,27 @@ def test_notes_edit_and_delete(env, plain_wav):
 
     env.command(EMRE, "/notsil", reply_to_message={"message_id": vid})
     assert env.main.note_text(env.fs.store["recordings"][rid]) == ""
+
+
+def test_getfile_timeout_is_retried(env, plain_wav, monkeypatch):
+    import requests
+    monkeypatch.setattr(env.main.time, "sleep", lambda s: None)
+    orig, failed = env.tg.post, []
+
+    def post(url, json=None, timeout=None):
+        if url.endswith("/getFile") and not failed:
+            failed.append(1)
+            raise requests.ReadTimeout("read timed out")
+        if url.endswith("/sendMessage") and json and json.get("text") == "boom":
+            raise requests.ReadTimeout("read timed out")
+        return orig(url, json=json, timeout=timeout)
+
+    monkeypatch.setattr(env.main.requests, "post", post)
+    join_all(env, EMRE)
+    vid = env.voice(EMRE, plain_wav)
+    assert f"-1001_{vid}" in env.fs.store["recordings"]
+    # A send that timed out may have arrived, so it is not repeated
+    calls = []
+    monkeypatch.setattr(env.main.requests, "post", lambda url, json=None, timeout=None: (calls.append(url), post(url, json, timeout))[1])
+    assert env.main.tg("sendMessage", chat_id=1, text="boom") is None
+    assert sum(u.endswith("/sendMessage") for u in calls) == 1

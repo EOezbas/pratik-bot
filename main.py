@@ -118,10 +118,28 @@ def alert(key, text):
         log.exception("alert failed")
 
 
+# Read-only calls are safe to repeat after a timeout; a repeated send could post twice
+SAFE_RETRY = {"getFile", "getMe", "getWebhookInfo", "getChatMember"}
+
+
+def post_api(method, params):
+    for attempt in range(3):
+        try:
+            return requests.post(f"{API}/{method}", json=params, timeout=30)
+        except (requests.ConnectionError, requests.Timeout) as e:
+            # A connection that never opened did not reach Telegram, so any call can be repeated
+            retry = isinstance(e, requests.ConnectTimeout) or not isinstance(e, requests.Timeout) \
+                or method in SAFE_RETRY
+            if not retry or attempt == 2:
+                raise
+            log.warning("telegram %s attempt %d failed: %r", method, attempt + 1, e)
+            time.sleep(2 * (attempt + 1))
+
+
 def tg(method, **params):
     try:
         for _ in range(3):
-            r = requests.post(f"{API}/{method}", json=params, timeout=30)
+            r = post_api(method, params)
             data = r.json()
             wait = (data.get("parameters") or {}).get("retry_after")
             if data.get("ok") or data.get("error_code") != 429 or not wait:
@@ -690,15 +708,22 @@ def save_recording(msg, user, media, kind, force=False):
 
     info = tg("getFile", file_id=media["file_id"])
     if not info or not info.get("file_path"):
-        send(chat_id, "Bu kayıt kaydedilemedi. Dosya 20 MB’tan büyük olabilir, daha kısa bir kayıt gönder.", mid)
+        send(chat_id, "Bu kaydı Telegram'dan alamadım. Biraz sonra kayda yanıt verip /kaydet yaz.", mid)
         return
-    try:
-        r = requests.get(f"{FILE_API}/{info['file_path']}", timeout=60)
-        r.raise_for_status()
-    except Exception:
-        log.exception("download failed")
+    r = None
+    for attempt in range(3):
+        try:
+            r = requests.get(f"{FILE_API}/{info['file_path']}", timeout=60)
+            r.raise_for_status()
+            break
+        except Exception:
+            log.exception("download attempt %d failed", attempt + 1)
+            r = None
+            if attempt < 2:
+                time.sleep(2 * (attempt + 1))
+    if r is None:
         alert("save", "Bir kayıt indirilemedi, loglara bak.")
-        send(chat_id, "Bu kayıt kaydedilemedi. Lütfen tekrar gönder.", mid)
+        send(chat_id, "Bu kaydı Telegram'dan alamadım. Biraz sonra kayda yanıt verip /kaydet yaz.", mid)
         return
     store_recording(msg, user, media, kind, r.content, mime, ext, force)
 

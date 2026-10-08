@@ -148,7 +148,8 @@ class FakeTelegram:
         self.calls.append((method, json or {}))
         if method in self.fail:
             return mock.Mock(json=lambda: {"ok": False, "description": "Bad Request: test"})
-        result = {"file_path": "f/file"} if method == "getFile" else True
+        defaults = {"getFile": {"file_path": "f/file"}, "sendPoll": {"message_id": 500}}
+        result = getattr(self, "results", {}).get(method) or defaults.get(method, True)
         return mock.Mock(json=lambda: {"ok": True, "result": result})
 
     def get(self, url, timeout=None):

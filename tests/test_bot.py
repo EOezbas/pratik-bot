@@ -1044,3 +1044,32 @@ def test_redelivered_update_during_processing_is_skipped(env, plain_wav):
                                         "date": int(__import__("time").time()),
                                         "voice": {"file_id": "f", "duration": 20}}})
     assert "-1001_99" in env.fs.store["recordings"] and "-1001_99" not in env.fs.store["processing"]
+
+
+def test_rehearsal_poll(env):
+    env.command(EMRE, "/prova bitir")
+    assert "Açık bir prova anketi yok" in env.tg.sent()[-1]
+    env.command(EMRE, "/prova")
+    polls = [p for m, p in env.tg.calls if m == "sendPoll"]
+    assert polls and len(polls[0]["options"]) == 7 and polls[0]["allows_multiple_answers"]
+    env.command(CAN, "/prova")
+    assert "Zaten açık" in env.tg.sent()[-1]
+    days = env.fs.store["config"]["state"]["rehearsal_poll"]["days"]
+    env.tg.results = {"stopPoll": {"options": [{"voter_count": v} for v in (1, 3, 0, 3, 0, 0, 0)]}}
+    env.command(EMRE, "/prova bitir")
+    assert "Prova günü" in env.tg.sent()[-1] and "3 kişi" in env.tg.sent()[-1]
+    assert env.fs.store["config"]["state"]["rehearsals"] == [days[1]]
+    env.client.get("/?t=tok")
+    assert "🎸" in env.client.get("/?m=" + days[1][:7]).data.decode()
+
+
+def test_rehearsal_includes_today_before_1730(env, monkeypatch):
+    m = env.main
+    monkeypatch.setattr(m, "now_local", lambda: dt.datetime(2026, 10, 8, 17, 0, tzinfo=m.TZ))
+    env.command(EMRE, "/prova")
+    days = env.fs.store["config"]["state"]["rehearsal_poll"]["days"]
+    assert days[0] == "2026-10-08" and len(days) == 7
+    env.fs.store["config"]["state"]["rehearsal_poll"] = None
+    monkeypatch.setattr(m, "now_local", lambda: dt.datetime(2026, 10, 8, 17, 30, tzinfo=m.TZ))
+    env.command(EMRE, "/prova")
+    assert env.fs.store["config"]["state"]["rehearsal_poll"]["days"][0] == "2026-10-09"

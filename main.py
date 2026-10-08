@@ -76,6 +76,7 @@ BOT_COMMANDS = [
     ("sarkilarim", "Bitmeyen şarkıların"),
     ("bitti", "Şarkının kaydına yanıt vererek bitir"),
     ("notsil", "Nota ya da kayda yanıt vererek notu sil"),
+    ("prova", "Prova günü anketi; /prova bitir ile sonuçlanır"),
     ("ilham", "Rastgele bir pratik fikri"),
     ("zar", "Zar at"),
     ("pratik", "Sohbet modunu bitir"),
@@ -944,6 +945,7 @@ def handle_command(cmd, msg, user):
              "/notsil – bir notuna yanıt olarak yaz, o not silinir; kaydın kendisine yanıt olarak yazarsan tüm notları silinir\n"
              "/atesle, /alkis – yanıt verdiğin mesaja 🔥 ya da 👏 bırakır\n"
              "/zar – zar atar · /ilham – rastgele bir pratik fikri\n"
+             "/prova – 7 günlük prova anketi açar (17:30'dan önce bugün de dahil), /prova bitir en çok seçilen günü duyurur\n"
              "/cikar – pratik olmayan bir kayda yanıt olarak yaz, mesaj grupta kalır ama pratik sayılmaz\n"
              "/yenilink – takvim linki grup dışına çıktıysa yenisini oluştur", mid)
     elif cmd == "/katil":
@@ -1035,6 +1037,8 @@ def handle_command(cmd, msg, user):
             send(chat_id, "\n".join(lines), mid)
     elif cmd == "/bitti":
         mark_song_done(msg, user)
+    elif cmd == "/prova":
+        rehearsal_command(msg, (msg.get("text") or "").split()[1:])
     elif cmd == "/zar":
         tg("sendDice", chat_id=chat_id, emoji="🎲")
     elif cmd == "/ilham":
@@ -1057,6 +1061,46 @@ def handle_command(cmd, msg, user):
         send(chat_id, "🎵 Sohbet modu bitti, attıkların yine takvime eklenecek.", mid)
     elif cmd == "/cikar":
         delete_recording(msg, user, keep_message=True)
+
+
+REHEARSAL_DAYS = 7
+REHEARSAL_TODAY_UNTIL = dt.time(17, 30)
+
+
+def rehearsal_command(msg, args):
+    chat_id = msg["chat"]["id"]
+    mid = msg["message_id"]
+    poll = field(state_ref().get(), "rehearsal_poll")
+    if args and _fold(args[0]) == "bitir":
+        if not poll:
+            send(chat_id, "Açık bir prova anketi yok. Başlatmak için /prova yaz.", mid)
+            return
+        state_ref().set({"rehearsal_poll": None}, merge=True)
+        result = tg("stopPoll", chat_id=chat_id, message_id=poll["message_id"])
+        votes = [o.get("voter_count", 0) for o in (result or {}).get("options", [])]
+        if not votes or max(votes) == 0:
+            send(chat_id, "🎸 Prova anketi kapandı, kimse gün seçmedi.", mid)
+            return
+        best = votes.index(max(votes))
+        day = dt.date.fromisoformat(poll["days"][best])
+        days = set(field(state_ref().get(), "rehearsals") or []) | {day.isoformat()}
+        state_ref().set({"rehearsals": sorted(days)}, merge=True)
+        send(chat_id, f"🎸 Prova günü: <b>{tr_date(day)}</b> ({max(votes)} kişi uygun)")
+        return
+    if poll:
+        send(chat_id, "Zaten açık bir prova anketi var. Sonucu görmek için /prova bitir yaz.",
+             poll["message_id"])
+        return
+    now = now_local()
+    # Today is still an option until late afternoon
+    first = 0 if now.time() < REHEARSAL_TODAY_UNTIL else 1
+    days = [now.date() + dt.timedelta(days=i) for i in range(first, first + REHEARSAL_DAYS)]
+    sent = tg("sendPoll", chat_id=chat_id, question="🎸 Prova için hangi günler uygun?",
+              options=[{"text": f"{TR_DAYS[d.weekday()]}, {d.day} {TR_MONTHS[d.month - 1]}"} for d in days],
+              is_anonymous=False, allows_multiple_answers=True)
+    if sent:
+        state_ref().set({"rehearsal_poll": {"message_id": sent["message_id"],
+                                            "days": [d.isoformat() for d in days]}}, merge=True)
 
 
 def mark_song_done(msg, user):
@@ -1469,6 +1513,7 @@ def calendar_page():
                 out.append({"name": m["name"], "state": st})
         return out
 
+    rehearsals = set(field(state_ref().get(), "rehearsals") or [])
     weeks = []
     for week in calendar.Calendar(firstweekday=0).monthdatescalendar(first.year, first.month):
         row = []
@@ -1478,6 +1523,7 @@ def calendar_page():
             row.append({
                 "date": d, "iso": d.isoformat(), "in_month": in_month, "is_today": d == t,
                 "states": sts, "done": sum(1 for s in sts if s["state"] in ("done", "metro")),
+                "rehearsal": d.isoformat() in rehearsals,
                 "total": len(sts), "has_list": in_month and d <= t and bool(sts),
             })
         weeks.append(row)
@@ -1718,7 +1764,7 @@ table.sum tr.inactive td{color:var(--muted)}
         <a class="cell{% if not c.in_month %} out{% endif %}{% if c.is_today %} today{% endif %}{% if not c.has_list %} nolink{% endif %}{% if c.total and c.done == c.total %} all{% endif %}"
            {% if c.has_list %}href="#d-{{ c.iso }}"{% endif %}
            title="{% for s in c.states %}{{ s.name }}: {{ {'done':'kaydetti','metro':'metronomla kaydetti','joker':'joker kullandı','missed':'kaydetmedi','pending':'bekleniyor'}[s.state] }}{% if not loop.last %}&#10;{% endif %}{% endfor %}">
-          <span class="top"><span class="num">{{ c.date.day }}</span>{% if c.total %}<span class="cnt">{{ c.done }}/{{ c.total }}</span>{% endif %}</span>
+          <span class="top"><span class="num">{{ c.date.day }}{% if c.rehearsal %} <span title="Prova">🎸</span>{% endif %}</span>{% if c.total %}<span class="cnt">{{ c.done }}/{{ c.total }}</span>{% endif %}</span>
           <span class="dots">{% for s in c.states %}<i class="dot {{ s.state }}"></i>{% endfor %}</span>
         </a>
       {% endfor %}{% endfor %}

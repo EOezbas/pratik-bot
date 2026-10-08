@@ -34,6 +34,7 @@ Arkadaş grubunun günlük müzik pratiği alışkanlığı için bir Telegram b
 | `/sarkilarim` | Yazan kişinin bitmeyen şarkıları. Şarkı adı dosya adından (yoksa notun ilk satırından), nereye kadar çalındığı nottan alınır; dosya adında ya da notta "bitti", "tamamı", "komple", "full", "complete", ✅ gibi bir ifade geçerse şarkı bitmiş sayılır |
 | `/bitti` | Şarkının bir kaydına yanıt olarak yazınca şarkı bitmiş sayılır |
 | `/notsil` | Bir nota yanıt olarak yazınca o not, kaydın kendisine yanıt olarak yazınca kaydın tüm notları takvimden silinir |
+| `/prova` | 7 günlük çok seçimli bir prova anketi açar (17:30'dan önce açılırsa bugün de dahil); `/prova bitir` anketi kapatır, en çok seçilen günü duyurur ve takvimde 🎸 ile işaretler |
 | `/atesle`, `/alkis` | Yanıt verilen mesaja 🔥 ya da 👏 bırakır, başka bir şeyi etkilemez |
 | `/zar`, `/ilham` | Zar atar · rastgele bir pratik fikri yazar |
 | `/yenilink` | Takvim linkini yeniler, eski link çalışmaz olur |

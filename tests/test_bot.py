@@ -1029,3 +1029,18 @@ def test_getfile_timeout_is_retried(env, plain_wav, monkeypatch):
     monkeypatch.setattr(env.main.requests, "post", lambda url, json=None, timeout=None: (calls.append(url), post(url, json, timeout))[1])
     assert env.main.tg("sendMessage", chat_id=1, text="boom") is None
     assert sum(u.endswith("/sendMessage") for u in calls) == 1
+
+
+def test_redelivered_update_during_processing_is_skipped(env, plain_wav):
+    join_all(env, EMRE)
+    env.fs.store.setdefault("processing", {})["-1001_99"] = {"started": dt.datetime.now(env.main.TZ)}
+    env.tg.next_file = plain_wav
+    env.main.handle_update({"message": {"message_id": 99, "chat": env.CHAT, "from": EMRE,
+                                        "date": int(__import__("time").time()),
+                                        "voice": {"file_id": "f", "duration": 20}}})
+    assert "-1001_99" not in env.fs.store.get("recordings", {})
+    del env.fs.store["processing"]["-1001_99"]
+    env.main.handle_update({"message": {"message_id": 99, "chat": env.CHAT, "from": EMRE,
+                                        "date": int(__import__("time").time()),
+                                        "voice": {"file_id": "f", "duration": 20}}})
+    assert "-1001_99" in env.fs.store["recordings"] and "-1001_99" not in env.fs.store["processing"]

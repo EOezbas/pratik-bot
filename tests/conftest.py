@@ -43,6 +43,12 @@ class Doc:
         d = self.s.setdefault(self.c, {}).get(self.id)
         return Snap(self.id, None if d is None else dict(d))
 
+    def create(self, data):
+        from google.api_core.exceptions import AlreadyExists
+        if self.id in self.s.get(self.c, {}):
+            raise AlreadyExists(self.id)
+        self.set(data)
+
     def set(self, data, merge=False, _deep=True):
         cur = self.s.setdefault(self.c, {})
         base = dict(cur.get(self.id, {})) if merge else {}

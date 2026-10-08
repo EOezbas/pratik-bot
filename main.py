@@ -18,6 +18,7 @@ from flask import Flask, Response, abort, make_response, redirect, render_templa
 from werkzeug.exceptions import HTTPException
 from google.cloud import firestore, storage
 from google.cloud.firestore_v1.base_query import FieldFilter
+from google.api_core.exceptions import AlreadyExists
 
 import bigfiles
 import metronome
@@ -706,6 +707,26 @@ def save_recording(msg, user, media, kind, force=False):
         save_large_recording(msg, user, media, kind, mime, ext, force)
         return
 
+    # Telegram resends the update when analysis outlasts its timeout; only the first copy runs
+    lock = db.collection("processing").document(f"{chat_id}_{mid}")
+    try:
+        lock.create({"started": dt.datetime.now(TZ)})
+    except AlreadyExists:
+        started = field(lock.get(), "started")
+        # A lock left behind by a crashed instance must not block the take forever
+        if isinstance(started, dt.datetime) and dt.datetime.now(TZ) - started < dt.timedelta(minutes=10):
+            log.info("%s_%s already being processed", chat_id, mid)
+            return
+        lock.set({"started": dt.datetime.now(TZ)})
+    try:
+        download_and_store(msg, user, media, kind, mime, ext, force)
+    finally:
+        lock.delete()
+
+
+def download_and_store(msg, user, media, kind, mime, ext, force):
+    chat_id = msg["chat"]["id"]
+    mid = msg["message_id"]
     info = tg("getFile", file_id=media["file_id"])
     if not info or not info.get("file_path"):
         send(chat_id, "Bu kaydı Telegram'dan alamadım. Biraz sonra kayda yanıt verip /kaydet yaz.", mid)

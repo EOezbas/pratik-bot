@@ -35,7 +35,7 @@ Arkadaş grubunun günlük müzik pratiği alışkanlığı için bir Telegram b
 | `/bitti` | Şarkının bir kaydına yanıt olarak yazınca şarkı bitmiş sayılır |
 | `/metronomvar`, `/metronomyok` | Bot metronomu yanlış algıladıysa kayda yanıt olarak yazınca düzeltilir; `/metronomvar 120` ile BPM de girilebilir (kendi kaydın; yönetici herkesinkini) |
 | `/notsil` | Bir nota yanıt olarak yazınca o not, kaydın kendisine yanıt olarak yazınca kaydın tüm notları takvimden silinir |
-| `/prova` | 7 günlük çok seçimli bir prova anketi açar (17:30'dan önce açılırsa bugün de dahil); `/prova bitir` anketi kapatır, en çok seçilen günü duyurur ve takvimde 🎸 ile işaretler |
+| `/prova` | 7 günlük çok seçimli bir prova anketi açar (17:30'dan önce açılırsa bugün de dahil); `/prova bitir` anketi kapatır, en çok seçilen günü ve şarkı oylama uygulamasında en çok oy alan şarkıyı duyurur, günü takvimde 🎸 ile işaretler |
 | `/atesle`, `/alkis` | Yanıt verilen mesaja 🔥 ya da 👏 bırakır, başka bir şeyi etkilemez |
 | `/zar`, `/ilham` | Zar atar · rastgele bir pratik fikri yazar |
 | `/yenilink` | Takvim linkini yeniler, eski link çalışmaz olur |
@@ -97,5 +97,6 @@ gcloud run services update pratik-bot --region europe-west3 --update-env-vars DE
 | `ALLOWED_CHAT_ID` | Botu tek bir gruba kilitlemek için (isteğe bağlı) |
 | `TG_API_ID`, `TG_API_HASH` | my.telegram.org'dan; 20 MB üstü dosyalar için (isteğe bağlı) |
 | `PUBLIC_URL` | Takvim linki için servis adresi |
+| `COVER_VOTE_URL`, `COVER_VOTE_CODE` | Şarkı oylama uygulamasının adresi ve oda şifresi; `/prova bitir` en çok oy alan şarkıyı da duyurur (varsayılan adres cover-vote.vercel.app, şifre isteğe bağlı) |
 
 Sıfırdan kurulum için [KURULUM.md](KURULUM.md) dosyasına bak.

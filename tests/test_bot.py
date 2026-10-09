@@ -1103,3 +1103,29 @@ def test_reminder_lists_poll_non_voters(env):
     assert "Prova anketine</a> oy vermeyenler" in out and "Can</a>" in out.split("oy vermeyenler")[1]
     assert "Emre</a>" not in out.split("oy vermeyenler")[1]
     assert "https://t.me/c/" not in out or "/500" in out
+
+
+def test_rehearsal_announces_top_cover_song(env, monkeypatch):
+    from unittest import mock as _m
+    data = {"songs": [{"id": "a", "title": "Creep", "artist": "Radiohead", "createdAt": 1},
+                      {"id": "b", "title": "Goodbye Stranger", "artist": "Supertramp", "createdAt": 2}],
+            "votes": {"a|u1": 1, "a|u2": 0, "b|u1": 1, "b|u2": 1, "b|u3": 0}}
+    monkeypatch.setattr(env.main.requests, "get",
+                        lambda url, **kw: _m.Mock(json=lambda: data, raise_for_status=lambda: None))
+    env.command(EMRE, "/prova")
+    env.tg.results = {"stopPoll": {"options": [{"voter_count": 2}] + [{"voter_count": 0}] * 6}}
+    env.command(EMRE, "/prova bitir")
+    out = env.tg.sent()[-1]
+    assert "Çalınacak: <b>Goodbye Stranger – Supertramp</b> (2 oy)" in out
+    day = env.fs.store["config"]["state"]["rehearsals"][0]
+    assert env.fs.store["config"]["state"]["rehearsal_songs"][day] == "Goodbye Stranger – Supertramp"
+
+
+def test_rehearsal_without_cover_app(env, monkeypatch):
+    def boom(url, **kw):
+        raise RuntimeError("offline")
+    monkeypatch.setattr(env.main.requests, "get", boom)
+    env.command(EMRE, "/prova")
+    env.tg.results = {"stopPoll": {"options": [{"voter_count": 1}] + [{"voter_count": 0}] * 6}}
+    env.command(EMRE, "/prova bitir")
+    assert "Prova günü" in env.tg.sent()[-1] and "Çalınacak" not in env.tg.sent()[-1]

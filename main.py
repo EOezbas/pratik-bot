@@ -1098,6 +1098,38 @@ def set_metronome(msg, user, has_metro, args):
     send(chat_id, text, mid)
 
 
+COVER_VOTE_URL = os.environ.get("COVER_VOTE_URL", "https://cover-vote.vercel.app").rstrip("/")
+COVER_VOTE_CODE = os.environ.get("COVER_VOTE_CODE", "")
+
+
+def top_cover_song():
+    """Highest-scoring song in the cover vote app, ranked the same way the app does, or None."""
+    if not COVER_VOTE_URL:
+        return None
+    try:
+        r = requests.get(f"{COVER_VOTE_URL}/api/songs", headers={"x-room-code": COVER_VOTE_CODE}, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+    except Exception:
+        log.exception("cover vote lookup failed")
+        return None
+    songs = [s for s in data.get("songs") or [] if isinstance(s, dict) and s.get("id")]
+    tally = {s["id"]: [0, 0] for s in songs}
+    for key, value in (data.get("votes") or {}).items():
+        sid = key.split("|", 1)[0]
+        if sid in tally:
+            v = float(value)
+            # A neutral (0) vote counts as voted but does not move the score
+            tally[sid][0] += (v > 0) - (v < 0)
+            tally[sid][1] += v > 0
+    if not songs:
+        return None
+    best = max(songs, key=lambda s: (tally[s["id"]][0], tally[s["id"]][1], -(s.get("createdAt") or 0)))
+    if tally[best["id"]][0] <= 0:
+        return None
+    return {"title": best.get("title", ""), "artist": best.get("artist", ""), "score": tally[best["id"]][0]}
+
+
 REHEARSAL_DAYS = 7
 REHEARSAL_TODAY_UNTIL = dt.time(17, 30)
 
@@ -1137,8 +1169,15 @@ def rehearsal_command(msg, args):
         best = votes.index(max(votes))
         day = dt.date.fromisoformat(poll["days"][best])
         days = set(field(state_ref().get(), "rehearsals") or []) | {day.isoformat()}
-        state_ref().set({"rehearsals": sorted(days)}, merge=True)
-        send(chat_id, f"🎸 Prova günü: <b>{tr_date(day)}</b> ({max(votes)} kişi uygun)")
+        update = {"rehearsals": sorted(days)}
+        lines = [f"🎸 Prova günü: <b>{tr_date(day)}</b> ({max(votes)} kişi uygun)"]
+        song = top_cover_song()
+        if song:
+            name = " – ".join(x for x in (song["title"], song["artist"]) if x)
+            lines.append(f"🎵 Çalınacak: <b>{html.escape(name)}</b> ({song['score']} oy)")
+            update["rehearsal_songs"] = {**(field(state_ref().get(), "rehearsal_songs") or {}), day.isoformat(): name}
+        state_ref().set(update, merge=True)
+        send(chat_id, "\n".join(lines))
         return
     if poll:
         send(chat_id, "Zaten açık bir prova anketi var. Sonucu görmek için /prova bitir yaz.",
@@ -1584,6 +1623,7 @@ def calendar_page():
         return out
 
     rehearsals = set(field(state_ref().get(), "rehearsals") or [])
+    rehearsal_songs = field(state_ref().get(), "rehearsal_songs") or {}
     weeks = []
     for week in calendar.Calendar(firstweekday=0).monthdatescalendar(first.year, first.month):
         row = []
@@ -1594,6 +1634,7 @@ def calendar_page():
                 "date": d, "iso": d.isoformat(), "in_month": in_month, "is_today": d == t,
                 "states": sts, "done": sum(1 for s in sts if s["state"] in ("done", "metro")),
                 "rehearsal": d.isoformat() in rehearsals,
+                "rehearsal_song": rehearsal_songs.get(d.isoformat(), ""),
                 "total": len(sts), "has_list": in_month and d <= t and bool(sts),
             })
         weeks.append(row)
@@ -1834,7 +1875,7 @@ table.sum tr.inactive td{color:var(--muted)}
         <a class="cell{% if not c.in_month %} out{% endif %}{% if c.is_today %} today{% endif %}{% if not c.has_list %} nolink{% endif %}{% if c.total and c.done == c.total %} all{% endif %}"
            {% if c.has_list %}href="#d-{{ c.iso }}"{% endif %}
            title="{% for s in c.states %}{{ s.name }}: {{ {'done':'kaydetti','metro':'metronomla kaydetti','joker':'joker kullandı','missed':'kaydetmedi','pending':'bekleniyor'}[s.state] }}{% if not loop.last %}&#10;{% endif %}{% endfor %}">
-          <span class="top"><span class="num">{{ c.date.day }}{% if c.rehearsal %} <span title="Prova">🎸</span>{% endif %}</span>{% if c.total %}<span class="cnt">{{ c.done }}/{{ c.total }}</span>{% endif %}</span>
+          <span class="top"><span class="num">{{ c.date.day }}{% if c.rehearsal %} <span title="Prova{% if c.rehearsal_song %}: {{ c.rehearsal_song }}{% endif %}">🎸</span>{% endif %}</span>{% if c.total %}<span class="cnt">{{ c.done }}/{{ c.total }}</span>{% endif %}</span>
           <span class="dots">{% for s in c.states %}<i class="dot {{ s.state }}"></i>{% endfor %}</span>
         </a>
       {% endfor %}{% endfor %}

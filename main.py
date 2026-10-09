@@ -1098,7 +1098,7 @@ def set_metronome(msg, user, has_metro, args):
     send(chat_id, text, mid)
 
 
-COVER_VOTE_URL = os.environ.get("COVER_VOTE_URL", "https://cover-vote.vercel.app").rstrip("/")
+COVER_VOTE_URL = os.environ.get("COVER_VOTE_URL", "https://cover-vote-five.vercel.app").rstrip("/")
 COVER_VOTE_CODE = os.environ.get("COVER_VOTE_CODE", "")
 
 

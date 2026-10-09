@@ -97,6 +97,6 @@ gcloud run services update pratik-bot --region europe-west3 --update-env-vars DE
 | `ALLOWED_CHAT_ID` | Botu tek bir gruba kilitlemek için (isteğe bağlı) |
 | `TG_API_ID`, `TG_API_HASH` | my.telegram.org'dan; 20 MB üstü dosyalar için (isteğe bağlı) |
 | `PUBLIC_URL` | Takvim linki için servis adresi |
-| `COVER_VOTE_URL`, `COVER_VOTE_CODE` | Şarkı oylama uygulamasının adresi ve oda şifresi; `/prova bitir` en çok oy alan şarkıyı da duyurur (varsayılan adres cover-vote.vercel.app, şifre isteğe bağlı) |
+| `COVER_VOTE_URL`, `COVER_VOTE_CODE` | Şarkı oylama uygulamasının adresi ve oda şifresi; `/prova bitir` en çok oy alan şarkıyı da duyurur (varsayılan adres cover-vote-five.vercel.app, şifre isteğe bağlı) |
 
 Sıfırdan kurulum için [KURULUM.md](KURULUM.md) dosyasına bak.

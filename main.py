@@ -47,7 +47,7 @@ TOKEN_CACHE_SEC = 30
 STREAK_MILESTONES = {7, 14, 21, 30, 60, 365}
 COUNT_MILESTONES = {1, 5, 31, 50, 69, 100}
 MAX_TG_BYTES = 20 * 1024 * 1024
-HISTORY_DAYS = 21
+HISTORY_DAYS = 20
 MEDIA_EXTS = {"ogg", "oga", "opus", "mp3", "m4a", "aac", "wav", "flac", "aif", "aiff", "wma",
               "mp4", "mov", "m4v", "webm", "mkv", "avi", "3gp"}
 
@@ -65,7 +65,7 @@ app = Flask(__name__)
 
 BOT_COMMANDS = [
     ("bugun", "Bugün kim kaydetti"),
-    ("seri", "Son 21 gün"),
+    ("seri", "Son 20 gün"),
     ("detay", "Herkesin istatistikleri"),
     ("takvim", "Tüm kayıtların takvimi"),
     ("katil", "Gruba katıl"),
@@ -946,7 +946,7 @@ def handle_command(cmd, msg, user):
              "Not eklemek için mesaja açıklama yaz ya da kendi kaydına yanıt ver.\n"
              "İçinde müzik olmayan sesli mesajlar (sadece konuşma) pratik sayılmaz.\n\n"
              "/bugun – bugün kim kaydetti\n"
-             "/seri – son 21 gün (🔥 metronomlu, ❤ kaydetti, 🃏 joker, 💔 atladı)\n"
+             "/seri – son 20 gün (🔥 metronomlu, ❤ kaydetti, 🃏 joker, 💔 atladı)\n"
              "/detay – herkesin istatistikleri\n"
              "/takvim – tüm kayıtların takvimi\n"
              "/katil – kayıt atmadan gruba katıl\n"

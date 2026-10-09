@@ -115,7 +115,7 @@ def test_seri_shows_history_with_joker(env):
     text = env.tg.sent()[-1]
     assert "⛓" not in text and not text.startswith("Seriler")
     emre_line = text.split("\n")[1]
-    assert len(re.findall("🔥|❤|🃏|💔", emre_line)) == 21
+    assert len(re.findall("🔥|❤|🃏|💔", emre_line)) == 20
     assert "🃏" in emre_line
     can_line = text.split("\n")[-1]
     assert len(re.findall("🃏|💔", can_line)) == 2 and not re.search("🔥|❤", can_line)

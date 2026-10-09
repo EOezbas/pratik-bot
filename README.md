@@ -22,7 +22,7 @@ Arkadaş grubunun günlük müzik pratiği alışkanlığı için bir Telegram b
 | Komut | Açıklama |
 |---|---|
 | `/bugun` | Bugün kim kaydetti |
-| `/seri` | Son 21 gün: 🔥 metronomlu, ❤ kaydetti, 🃏 joker, 💔 atladı |
+| `/seri` | Son 20 gün: 🔥 metronomlu, ❤ kaydetti, 🃏 joker, 💔 atladı |
 | `/detay` | En uzun seri, joker durumu, bu ayki günler, metronomlu günler, toplam kayıt süresi |
 | `/takvim` | Takvim sayfasının linki |
 | `/katil` | Kayıt atmadan gruba katıl |

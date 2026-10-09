@@ -479,16 +479,6 @@ IDEAS = [
 MARK = {"metro": "🔥", "done": "❤", "joker": "🃏", "missed": "💔"}
 
 
-def week_marks(days):
-    """Status emojis with a bar between Mon-Sun weeks."""
-    out = ""
-    for i, (d, st) in enumerate(days):
-        if i and d.weekday() == 0:
-            out += "|"
-        out += MARK[st]
-    return out
-
-
 def fmt_total(sec):
     h, m = divmod(int(sec) // 60, 60)
     if h:
@@ -985,7 +975,7 @@ def handle_command(cmd, msg, user):
         for m in members:
             hist = history(m, stats.get(m["id"], empty_stats()), t)
             cur, _ = chain_stats(hist)
-            marks = week_marks(hist[-HISTORY_DAYS:])
+            marks = "".join(MARK[s] for _, s in hist[-HISTORY_DAYS:])
             rows.append((cur, m["name"], marks or "–"))
         rows.sort(key=lambda r: (-r[0], r[1]))
         lines = []

@@ -162,7 +162,7 @@ def tg(method, **params):
         return None
 
 
-ALLOWED_UPDATES = ["message", "edited_message", "message_reaction"]
+ALLOWED_UPDATES = ["message", "edited_message", "message_reaction", "poll_answer"]
 
 
 def register_commands():
@@ -496,6 +496,9 @@ register_commands()
 def handle_update(upd):
     if upd.get("message_reaction"):
         handle_reaction(upd["message_reaction"])
+        return
+    if upd.get("poll_answer"):
+        handle_poll_answer(upd["poll_answer"])
         return
     msg = upd.get("message")
     edited = upd.get("edited_message")
@@ -1099,6 +1102,24 @@ REHEARSAL_DAYS = 7
 REHEARSAL_TODAY_UNTIL = dt.time(17, 30)
 
 
+def handle_poll_answer(ans):
+    poll = field(state_ref().get(), "rehearsal_poll")
+    user = ans.get("user") or {}
+    if not poll or ans.get("poll_id") != poll.get("poll_id") or not user:
+        return
+    voters = set(poll.get("voters") or [])
+    uid = str(user["id"])
+    # An empty answer means the vote was retracted
+    voters = voters | {uid} if ans.get("option_ids") else voters - {uid}
+    poll["voters"] = sorted(voters)
+    state_ref().set({"rehearsal_poll": poll}, merge=True)
+
+
+def message_link(chat_id, message_id):
+    cid = str(chat_id)
+    return f"https://t.me/c/{cid[4:]}/{message_id}" if cid.startswith("-100") else None
+
+
 def rehearsal_command(msg, args):
     chat_id = msg["chat"]["id"]
     mid = msg["message_id"]
@@ -1132,7 +1153,9 @@ def rehearsal_command(msg, args):
               is_anonymous=False, allows_multiple_answers=True)
     if sent:
         state_ref().set({"rehearsal_poll": {"message_id": sent["message_id"],
-                                            "days": [d.isoformat() for d in days]}}, merge=True)
+                                            "poll_id": (sent.get("poll") or {}).get("id"),
+                                            "voters": [], "days": [d.isoformat() for d in days]}},
+                        merge=True)
 
 
 def mark_song_done(msg, user):
@@ -1406,8 +1429,9 @@ def cron_reminder():
         return "no members"
     stats = load_stats()
     missing = [m for m in members if t.isoformat() not in stats.get(m["id"], empty_stats())["days"]]
+    poll_lines = rehearsal_reminder(chat_id, members)
     if not missing:
-        send(chat_id, "Bugün herkes kaydetti ❤")
+        send(chat_id, "\n".join(["Bugün herkes kaydetti ❤"] + poll_lines))
         return "all done"
     lines = ["⏰ <b>Bugünün kaydı bekleniyor</b>"]
     for m in missing:
@@ -1420,8 +1444,22 @@ def cron_reminder():
         lines.append(f"• {mention(m['id'], m['name'])}{tail}")
     done_n = len(members) - len(missing)
     lines.append(f"\n{done_n}/{len(members)} kişi kaydetti.")
-    send(chat_id, "\n".join(lines))
+    send(chat_id, "\n".join(lines + poll_lines))
     return "sent"
+
+
+def rehearsal_reminder(chat_id, members):
+    poll = field(state_ref().get(), "rehearsal_poll")
+    # Polls opened before votes were tracked have no id, so their voters are unknown
+    if not poll or not poll.get("poll_id"):
+        return []
+    voters = set(poll.get("voters") or [])
+    waiting = [m for m in members if m["id"] not in voters]
+    if not waiting:
+        return []
+    link = message_link(chat_id, poll["message_id"])
+    head = f'<a href="{link}">Prova anketine</a>' if link else "Prova anketine"
+    return ["", f"🎸 {head} oy vermeyenler: " + ", ".join(mention(m["id"], m["name"]) for m in waiting)]
 
 
 @app.post("/cron/weekly")

@@ -1089,3 +1089,17 @@ def test_manual_metronome_override(env, plain_wav):
     env.command(EMRE, "/metronomyok", reply_to_message={"message_id": vid})
     rec = env.fs.store["recordings"][rid]
     assert not rec["metronome"] and rec["bpm"] is None
+
+
+def test_reminder_lists_poll_non_voters(env):
+    join_all(env, EMRE, CAN)
+    env.tg.results = {"sendPoll": {"message_id": 500, "poll": {"id": "P1"}}}
+    env.command(EMRE, "/prova")
+    env.main.handle_update({"poll_answer": {"poll_id": "P1", "user": EMRE, "option_ids": [0, 2]}})
+    env.main.handle_update({"poll_answer": {"poll_id": "P1", "user": CAN, "option_ids": [1]}})
+    env.main.handle_update({"poll_answer": {"poll_id": "P1", "user": CAN, "option_ids": []}})
+    env.client.post("/cron/reminder", headers={"X-Cron-Secret": "cron"})
+    out = env.tg.sent()[-1]
+    assert "Prova anketine</a> oy vermeyenler" in out and "Can</a>" in out.split("oy vermeyenler")[1]
+    assert "Emre</a>" not in out.split("oy vermeyenler")[1]
+    assert "https://t.me/c/" not in out or "/500" in out

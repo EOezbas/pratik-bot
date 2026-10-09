@@ -1073,3 +1073,19 @@ def test_rehearsal_includes_today_before_1730(env, monkeypatch):
     monkeypatch.setattr(m, "now_local", lambda: dt.datetime(2026, 10, 8, 17, 30, tzinfo=m.TZ))
     env.command(EMRE, "/prova")
     assert env.fs.store["config"]["state"]["rehearsal_poll"]["days"][0] == "2026-10-09"
+
+
+def test_manual_metronome_override(env, plain_wav):
+    join_all(env, EMRE, CAN)
+    vid = env.voice(EMRE, plain_wav)
+    rid = f"-1001_{vid}"
+    env.command(CAN, "/metronomvar", reply_to_message={"message_id": vid})
+    assert "Sadece kendi" in env.tg.sent()[-1]
+    env.command(EMRE, "/metronomvar 120", reply_to_message={"message_id": vid})
+    rec = env.fs.store["recordings"][rid]
+    assert rec["metronome"] and rec["bpm"] == 120 and "120 bpm" in env.tg.sent()[-1]
+    assert ("setMessageReaction", {"chat_id": -1001, "message_id": vid,
+                                   "reaction": [{"type": "emoji", "emoji": "🔥"}]}) in env.tg.calls
+    env.command(EMRE, "/metronomyok", reply_to_message={"message_id": vid})
+    rec = env.fs.store["recordings"][rid]
+    assert not rec["metronome"] and rec["bpm"] is None

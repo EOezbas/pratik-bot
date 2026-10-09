@@ -76,6 +76,8 @@ BOT_COMMANDS = [
     ("sarkilarim", "Bitmeyen şarkıların"),
     ("bitti", "Şarkının kaydına yanıt vererek bitir"),
     ("notsil", "Nota ya da kayda yanıt vererek notu sil"),
+    ("metronomvar", "Kayda yanıt vererek metronomlu işaretle"),
+    ("metronomyok", "Kayda yanıt vererek metronomsuz işaretle"),
     ("prova", "Prova günü anketi; /prova bitir ile sonuçlanır"),
     ("ilham", "Rastgele bir pratik fikri"),
     ("zar", "Zar at"),
@@ -942,6 +944,7 @@ def handle_command(cmd, msg, user):
              "/sarkilarim – bitmeyen şarkıların (şarkı adı dosya adından ya da notun ilk satırından, "
              "nereye kadar çaldığın nottan; notta \"bitti\", \"tamamı\", \"full\" gibi bir şey yazınca biter)\n"
              "/bitti – şarkının kaydına yanıt olarak yaz, listeden çıkar\n"
+             "/metronomvar, /metronomyok – bot metronomu yanlış algıladıysa kayda yanıt olarak yaz (/metronomvar 120 ile BPM de girebilirsin)\n"
              "/notsil – bir notuna yanıt olarak yaz, o not silinir; kaydın kendisine yanıt olarak yazarsan tüm notları silinir\n"
              "/atesle, /alkis – yanıt verdiğin mesaja 🔥 ya da 👏 bırakır\n"
              "/zar – zar atar · /ilham – rastgele bir pratik fikri\n"
@@ -1037,6 +1040,8 @@ def handle_command(cmd, msg, user):
             send(chat_id, "\n".join(lines), mid)
     elif cmd == "/bitti":
         mark_song_done(msg, user)
+    elif cmd in ("/metronomvar", "/metronomyok"):
+        set_metronome(msg, user, cmd == "/metronomvar", (msg.get("text") or "").split()[1:])
     elif cmd == "/prova":
         rehearsal_command(msg, (msg.get("text") or "").split()[1:])
     elif cmd == "/zar":
@@ -1061,6 +1066,33 @@ def handle_command(cmd, msg, user):
         send(chat_id, "🎵 Sohbet modu bitti, attıkların yine takvime eklenecek.", mid)
     elif cmd == "/cikar":
         delete_recording(msg, user, keep_message=True)
+
+
+def set_metronome(msg, user, has_metro, args):
+    """Manual override when metronome detection got a take wrong."""
+    chat_id = msg["chat"]["id"]
+    mid = msg["message_id"]
+    rep = msg.get("reply_to_message")
+    ref = db.collection("recordings").document(f'{chat_id}_{rep["message_id"]}') if rep else None
+    snap = ref.get() if ref else None
+    if not snap or not snap.exists:
+        send(chat_id, "Düzeltmek istediğin kayda yanıt olarak yaz. BPM de ekleyebilirsin: /metronomvar 120", mid)
+        return
+    r = snap.to_dict()
+    if str(r.get("user_id")) != str(user["id"]) and str(get_admin_id() or "") != str(user["id"]):
+        send(chat_id, "Sadece kendi kaydını düzeltebilirsin.", mid)
+        return
+    bpm = int(args[0]) if args and args[0].isdigit() and 20 <= int(args[0]) <= 400 else None
+    if has_metro:
+        bpm = bpm or r.get("bpm") or r.get("tempo")
+        ref.update({"metronome": True, "bpm": bpm})
+        text = f"🔥 Metronomlu olarak işaretlendi{f' ({bpm} bpm)' if bpm else ''}."
+    else:
+        ref.update({"metronome": False, "bpm": None})
+        text = "❤ Metronomsuz olarak işaretlendi."
+    tg("setMessageReaction", chat_id=chat_id, message_id=rep["message_id"],
+       reaction=[{"type": "emoji", "emoji": "🔥" if has_metro else "❤"}])
+    send(chat_id, text, mid)
 
 
 REHEARSAL_DAYS = 7

@@ -33,6 +33,7 @@ Arkadaş grubunun günlük müzik pratiği alışkanlığı için bir Telegram b
 | `/sohbet`, `/pratik` | `/sohbet` sonrası attığın ses ve videolar takvime eklenmez; `/pratik` ile ya da gece gün başlangıcında biter |
 | `/sarkilarim` | Yazan kişinin bitmeyen şarkıları. Şarkı adı dosya adından (yoksa notun ilk satırından), nereye kadar çalındığı nottan alınır; dosya adında ya da notta "bitti", "tamamı", "komple", "full", "complete", ✅ gibi bir ifade geçerse şarkı bitmiş sayılır |
 | `/bitti` | Şarkının bir kaydına yanıt olarak yazınca şarkı bitmiş sayılır |
+| `/metronomvar`, `/metronomyok` | Bot metronomu yanlış algıladıysa kayda yanıt olarak yazınca düzeltilir; `/metronomvar 120` ile BPM de girilebilir (kendi kaydın; yönetici herkesinkini) |
 | `/notsil` | Bir nota yanıt olarak yazınca o not, kaydın kendisine yanıt olarak yazınca kaydın tüm notları takvimden silinir |
 | `/prova` | 7 günlük çok seçimli bir prova anketi açar (17:30'dan önce açılırsa bugün de dahil); `/prova bitir` anketi kapatır, en çok seçilen günü duyurur ve takvimde 🎸 ile işaretler |
 | `/atesle`, `/alkis` | Yanıt verilen mesaja 🔥 ya da 👏 bırakır, başka bir şeyi etkilemez |

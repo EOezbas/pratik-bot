@@ -1692,7 +1692,7 @@ def calendar_page():
     return render_template_string(
         PAGE, month_label=f"{TR_MONTHS[first.month - 1]} {first.year}", weeks=weeks,
         weekday_labels=TR_DAYS_SHORT, days=days, summary=summary, prev_m=prev_m, next_m=next_m,
-        today_label=tr_date(t), rec_count=len(recs),
+        today_label=tr_date(t), rec_count=len(recs), cover_url=COVER_VOTE_URL,
         who=current_who(names), people=[{"id": m["id"], "name": m["name"]} for m in members if m.get("active")])
 
 
@@ -1818,6 +1818,7 @@ table.sum th{font-family:var(--f-mono);font-weight:400;font-size:11.5px;color:va
 table.sum td.n{font-family:var(--f-mono)}
 table.sum tr.inactive td{color:var(--muted)}
 .miss-n{color:var(--miss)}
+.coverlink{font-size:14px;text-decoration:none;color:var(--accent)}
 .sumbox summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px}
 .sumbox summary::-webkit-details-marker{display:none}
 .sumbox summary::after{content:"▸";color:var(--muted);transition:transform .15s}
@@ -1851,7 +1852,8 @@ table.sum tr.inactive td{color:var(--muted)}
 </style></head><body>
 <div class="wrap">
   <header>
-    <div><div class="label">Bugün · {{ today_label }}</div><h1>Pratik Zinciri</h1></div>
+    <div><div class="label">Bugün · {{ today_label }}</div><h1>Pratik Zinciri</h1>
+      {% if cover_url %}<a class="coverlink" href="{{ cover_url }}" target="_blank" rel="noopener">🎵 Şarkı oylaması</a>{% endif %}</div>
     <nav class="nav">
       <a href="?m={{ prev_m }}">← Önceki</a>
       <strong style="font-family:var(--f-display);font-size:18px;padding:0 6px">{{ month_label }}</strong>

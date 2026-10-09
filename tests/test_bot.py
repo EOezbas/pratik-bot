@@ -1059,6 +1059,8 @@ def test_rehearsal_poll(env):
     env.command(EMRE, "/prova bitir")
     assert "Prova günü" in env.tg.sent()[-1] and "3 kişi" in env.tg.sent()[-1]
     assert env.fs.store["config"]["state"]["rehearsals"] == [days[1]]
+    assert ("pinChatMessage", {"chat_id": -1001, "message_id": 500, "disable_notification": True}) in env.tg.calls
+    assert ("unpinChatMessage", {"chat_id": -1001, "message_id": 500}) in env.tg.calls
     env.client.get("/?t=tok")
     assert "🎸" in env.client.get("/?m=" + days[1][:7]).data.decode()
 

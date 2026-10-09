@@ -1162,6 +1162,7 @@ def rehearsal_command(msg, args):
             return
         state_ref().set({"rehearsal_poll": None}, merge=True)
         result = tg("stopPoll", chat_id=chat_id, message_id=poll["message_id"])
+        tg("unpinChatMessage", chat_id=chat_id, message_id=poll["message_id"])
         votes = [o.get("voter_count", 0) for o in (result or {}).get("options", [])]
         if not votes or max(votes) == 0:
             send(chat_id, "🎸 Prova anketi kapandı, kimse gün seçmedi.", mid)
@@ -1191,6 +1192,7 @@ def rehearsal_command(msg, args):
               options=[{"text": f"{TR_DAYS[d.weekday()]}, {d.day} {TR_MONTHS[d.month - 1]}"} for d in days],
               is_anonymous=False, allows_multiple_answers=True)
     if sent:
+        tg("pinChatMessage", chat_id=chat_id, message_id=sent["message_id"], disable_notification=True)
         state_ref().set({"rehearsal_poll": {"message_id": sent["message_id"],
                                             "poll_id": (sent.get("poll") or {}).get("id"),
                                             "voters": [], "days": [d.isoformat() for d in days]}},

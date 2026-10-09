@@ -1131,3 +1131,10 @@ def test_rehearsal_without_cover_app(env, monkeypatch):
     env.tg.results = {"stopPoll": {"options": [{"voter_count": 1}] + [{"voter_count": 0}] * 6}}
     env.command(EMRE, "/prova bitir")
     assert "Prova günü" in env.tg.sent()[-1] and "Çalınacak" not in env.tg.sent()[-1]
+
+
+def test_week_marks_split_by_week(env):
+    m = env.main
+    start = dt.date(2026, 10, 2)  # Friday
+    days = [(start + dt.timedelta(days=i), "done") for i in range(10)]
+    assert m.week_marks(days) == "❤" * 3 + "|" + "❤" * 7

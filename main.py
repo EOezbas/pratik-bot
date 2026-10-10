@@ -538,7 +538,10 @@ def handle_update(upd):
     media, kind = find_media(msg)
 
     if media:
-        if not chat_mode(user["id"]):
+        if has_left(user["id"]):
+            send(chat["id"], "Ayrıldığın için bu kayıt sayılmadı. Katılmak için /katil yaz, "
+                             "sonra bu kayda yanıt verip /kaydet ile ekleyebilirsin.", msg["message_id"])
+        elif not chat_mode(user["id"]):
             save_recording(msg, user, media, kind)
         return
 
@@ -673,6 +676,12 @@ def media_type(media, kind):
     if not ext:
         ext = (mimetypes.guess_extension(mime) or ".bin").lstrip(".")
     return mime, re.sub(r"[^a-z0-9]", "", ext)[:5] or "bin"
+
+
+def has_left(uid):
+    """True for a member who left with /ayril; new people are not members yet."""
+    snap = db.collection("members").document(str(uid)).get()
+    return snap.exists and field(snap, "active") is False
 
 
 def chat_mode(uid):
@@ -828,8 +837,7 @@ def store_recording(msg, user, media, kind, content, mime, ext, force=False):
     if not force and not music.has_music(content):
         log.info("no music in %s_%s, not recorded", chat_id, mid)
         return False
-    # Members who left with /ayril stay out until they write /katil
-    upsert_member(user, activate=False)
+    upsert_member(user)
     try:
         ts = dt.datetime.fromtimestamp(msg["date"], TZ)
         day = practice_day(ts)
@@ -1243,6 +1251,9 @@ def force_save(msg, user):
         return
     if db.collection("recordings").document(f"{chat_id}_{rep['message_id']}").get().exists:
         send(chat_id, "Bu kayıt zaten kaydedilmiş.", mid)
+        return
+    if has_left(owner.get("id")):
+        send(chat_id, "Önce /katil yazmalısın, sonra kaydı ekleyebilirsin.", mid)
         return
     save_recording(rep, owner, media, kind, force=True)
 

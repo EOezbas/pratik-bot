@@ -1150,9 +1150,17 @@ def test_gifs_on_katil_and_ayril(env):
     assert not [c for c in env.tg.calls[n:] if c[0] == "sendAnimation"]
 
 
-def test_recording_does_not_rejoin_after_ayril(env, plain_wav):
+def test_left_member_cannot_record_until_katil(env, plain_wav):
     join_all(env, EMRE)
     env.command(EMRE, "/ayril")
     vid = env.voice(EMRE, plain_wav)
+    assert f"-1001_{vid}" not in env.fs.store.get("recordings", {})
+    assert "Ayrıldığın için" in env.tg.sent()[-1]
+    rep = {"message_id": vid, "from": EMRE, "chat": env.CHAT, "date": int(__import__("time").time()),
+           "voice": {"file_id": "f", "duration": 20}}
+    env.command(EMRE, "/kaydet", reply_to_message=rep)
+    assert "Önce /katil" in env.tg.sent()[-1]
+    env.command(EMRE, "/katil")
+    env.tg.next_file = plain_wav
+    env.command(EMRE, "/kaydet", reply_to_message=rep)
     assert f"-1001_{vid}" in env.fs.store["recordings"]
-    assert env.fs.store["members"]["1"]["active"] is False

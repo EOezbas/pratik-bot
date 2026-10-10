@@ -828,7 +828,8 @@ def store_recording(msg, user, media, kind, content, mime, ext, force=False):
     if not force and not music.has_music(content):
         log.info("no music in %s_%s, not recorded", chat_id, mid)
         return False
-    upsert_member(user)
+    # Members who left with /ayril stay out until they write /katil
+    upsert_member(user, activate=False)
     try:
         ts = dt.datetime.fromtimestamp(msg["date"], TZ)
         day = practice_day(ts)
@@ -964,7 +965,7 @@ def handle_command(cmd, msg, user):
     elif cmd == "/ayril":
         was_active = field(db.collection("members").document(str(user["id"])).get(), "active")
         deactivate_member(user["id"])
-        send(chat_id, "Hatırlatmalardan çıkarıldın. Kayıt attığında tekrar eklenirsin.", mid)
+        send(chat_id, "Hatırlatmalardan çıkarıldın. Tekrar katılmak için /katil yaz.", mid)
         if was_active:
             send_celebration(chat_id, "leave", "👋")
     elif cmd == "/bugun":

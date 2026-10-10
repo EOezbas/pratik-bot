@@ -1148,3 +1148,11 @@ def test_gifs_on_katil_and_ayril(env):
     env.command(EMRE, "/ayril")
     env.message(CAN, left_chat_member=CAN)
     assert not [c for c in env.tg.calls[n:] if c[0] == "sendAnimation"]
+
+
+def test_recording_does_not_rejoin_after_ayril(env, plain_wav):
+    join_all(env, EMRE)
+    env.command(EMRE, "/ayril")
+    vid = env.voice(EMRE, plain_wav)
+    assert f"-1001_{vid}" in env.fs.store["recordings"]
+    assert env.fs.store["members"]["1"]["active"] is False

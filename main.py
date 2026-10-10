@@ -538,10 +538,8 @@ def handle_update(upd):
     media, kind = find_media(msg)
 
     if media:
-        if has_left(user["id"]):
-            send(chat["id"], "Ayrıldığın için bu kayıt sayılmadı. Katılmak için /katil yaz, "
-                             "sonra bu kayda yanıt verip /kaydet ile ekleyebilirsin.", msg["message_id"])
-        elif not chat_mode(user["id"]):
+        # Members who left with /ayril are ignored silently until they write /katil
+        if not has_left(user["id"]) and not chat_mode(user["id"]):
             save_recording(msg, user, media, kind)
         return
 

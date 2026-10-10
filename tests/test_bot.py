@@ -1155,7 +1155,7 @@ def test_left_member_cannot_record_until_katil(env, plain_wav):
     env.command(EMRE, "/ayril")
     vid = env.voice(EMRE, plain_wav)
     assert f"-1001_{vid}" not in env.fs.store.get("recordings", {})
-    assert "Ayrıldığın için" in env.tg.sent()[-1]
+    assert not [p for m, p in env.tg.calls if m == "setMessageReaction" and p["message_id"] == vid]
     rep = {"message_id": vid, "from": EMRE, "chat": env.CHAT, "date": int(__import__("time").time()),
            "voice": {"file_id": "f", "duration": 20}}
     env.command(EMRE, "/kaydet", reply_to_message=rep)

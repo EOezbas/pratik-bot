@@ -348,7 +348,7 @@ def test_milestones_31_and_69(env):
 def test_milestone_list(env):
     labels = [b["text"] for row in env.main.milestone_keyboard(env.main.load_celebrations())["keyboard"] for b in row]
     assert labels == ["7 gün", "14 gün", "21 gün", "30 gün", "60 gün", "365 gün", "İlk kayıt",
-                      "5. kayıt", "31. kayıt", "50. kayıt", "69. kayıt", "100. kayıt", "Gruptan ayrılma", "İptal"]
+                      "5. kayıt", "31. kayıt", "50. kayıt", "69. kayıt", "100. kayıt", "Katılma (/katil)", "Ayrılma (/ayril)", "İptal"]
 
 
 def test_first_and_fifth_recording(env, plain_wav):
@@ -1133,10 +1133,18 @@ def test_rehearsal_without_cover_app(env, monkeypatch):
     assert "Prova günü" in env.tg.sent()[-1] and "Çalınacak" not in env.tg.sent()[-1]
 
 
-def test_gif_when_member_leaves(env):
-    join_all(env, EMRE, CAN)
-    env.message(CAN, left_chat_member=CAN)
-    assert env.tg.sent()[-1] == "👋"
-    env.fs.store["config"]["celebrations"] = {"assigned": {"left": {"type": "animation", "file_id": "BYE", "uid": "b"}}}
-    env.message(EMRE, left_chat_member=EMRE)
+def test_gifs_on_katil_and_ayril(env):
+    env.fs.store.setdefault("config", {})["celebrations"] = {"assigned": {
+        "join": {"type": "animation", "file_id": "HI", "uid": "h"},
+        "leave": {"type": "animation", "file_id": "BYE", "uid": "b"}}}
+    env.command(EMRE, "/katil")
+    assert ("sendAnimation", {"chat_id": -1001, "animation": "HI"}) in env.tg.calls
+    n = len(env.tg.calls)
+    env.command(EMRE, "/katil")
+    assert not [c for c in env.tg.calls[n:] if c[0] == "sendAnimation"]
+    env.command(EMRE, "/ayril")
     assert ("sendAnimation", {"chat_id": -1001, "animation": "BYE"}) in env.tg.calls
+    n = len(env.tg.calls)
+    env.command(EMRE, "/ayril")
+    env.message(CAN, left_chat_member=CAN)
+    assert not [c for c in env.tg.calls[n:] if c[0] == "sendAnimation"]

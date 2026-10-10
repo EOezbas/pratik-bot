@@ -524,8 +524,6 @@ def handle_update(upd):
     if msg.get("left_chat_member"):
         gone = msg["left_chat_member"]
         deactivate_member(gone["id"])
-        if not gone.get("is_bot"):
-            send_celebration(chat["id"], "left", "👋")
         return
 
     user = msg.get("from") or {}
@@ -958,11 +956,17 @@ def handle_command(cmd, msg, user):
              "/cikar – pratik olmayan bir kayda yanıt olarak yaz, mesaj grupta kalır ama pratik sayılmaz\n"
              "/yenilink – takvim linki grup dışına çıktıysa yenisini oluştur", mid)
     elif cmd == "/katil":
+        was_active = field(db.collection("members").document(str(user["id"])).get(), "active")
         upsert_member(user)
         send(chat_id, f"{mention(user['id'], display_name(user))} katıldı.", mid)
+        if not was_active:
+            send_celebration(chat_id, "join", "🎉")
     elif cmd == "/ayril":
+        was_active = field(db.collection("members").document(str(user["id"])).get(), "active")
         deactivate_member(user["id"])
         send(chat_id, "Hatırlatmalardan çıkarıldın. Kayıt attığında tekrar eklenirsin.", mid)
+        if was_active:
+            send_celebration(chat_id, "leave", "👋")
     elif cmd == "/bugun":
         members = [m for m in load_members() if m.get("active")]
         done = load_days(t)
@@ -1284,7 +1288,7 @@ def delete_recording(msg, user, keep_message=False):
 def milestone_labels(cel):
     return [(f"streak{n}", f"{n} gün") for n in sorted(cel["streaks"])] + \
            [(f"count{n}", "İlk kayıt" if n == 1 else f"{n}. kayıt") for n in sorted(cel["counts"])] + \
-           [("left", "Gruptan ayrılma")]
+           [("join", "Katılma (/katil)"), ("leave", "Ayrılma (/ayril)")]
 
 
 def celebrations_ref():

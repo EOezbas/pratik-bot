@@ -1164,3 +1164,8 @@ def test_left_member_cannot_record_until_katil(env, plain_wav):
     env.tg.next_file = plain_wav
     env.command(EMRE, "/kaydet", reply_to_message=rep)
     assert f"-1001_{vid}" in env.fs.store["recordings"]
+
+
+def test_provabitir_joined(env):
+    env.command(EMRE, "/provabitir")
+    assert "Açık bir prova anketi yok" in env.tg.sent()[-1]

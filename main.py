@@ -1063,6 +1063,8 @@ def handle_command(cmd, msg, user):
         set_metronome(msg, user, cmd == "/metronomvar", (msg.get("text") or "").split()[1:])
     elif cmd == "/prova":
         rehearsal_command(msg, (msg.get("text") or "").split()[1:])
+    elif cmd == "/provabitir":
+        rehearsal_command(msg, ["bitir"])
     elif cmd == "/zar":
         tg("sendDice", chat_id=chat_id, emoji="🎲")
     elif cmd == "/ilham":

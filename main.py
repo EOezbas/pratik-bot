@@ -522,7 +522,10 @@ def handle_update(upd):
         if not u.get("is_bot"):
             upsert_member(u)
     if msg.get("left_chat_member"):
-        deactivate_member(msg["left_chat_member"]["id"])
+        gone = msg["left_chat_member"]
+        deactivate_member(gone["id"])
+        if not gone.get("is_bot"):
+            send_celebration(chat["id"], "left", "👋")
         return
 
     user = msg.get("from") or {}
@@ -1280,7 +1283,8 @@ def delete_recording(msg, user, keep_message=False):
 
 def milestone_labels(cel):
     return [(f"streak{n}", f"{n} gün") for n in sorted(cel["streaks"])] + \
-           [(f"count{n}", "İlk kayıt" if n == 1 else f"{n}. kayıt") for n in sorted(cel["counts"])]
+           [(f"count{n}", "İlk kayıt" if n == 1 else f"{n}. kayıt") for n in sorted(cel["counts"])] + \
+           [("left", "Gruptan ayrılma")]
 
 
 def celebrations_ref():

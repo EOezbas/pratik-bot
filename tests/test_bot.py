@@ -348,7 +348,7 @@ def test_milestones_31_and_69(env):
 def test_milestone_list(env):
     labels = [b["text"] for row in env.main.milestone_keyboard(env.main.load_celebrations())["keyboard"] for b in row]
     assert labels == ["7 gün", "14 gün", "21 gün", "30 gün", "60 gün", "365 gün", "İlk kayıt",
-                      "5. kayıt", "31. kayıt", "50. kayıt", "69. kayıt", "100. kayıt", "İptal"]
+                      "5. kayıt", "31. kayıt", "50. kayıt", "69. kayıt", "100. kayıt", "Gruptan ayrılma", "İptal"]
 
 
 def test_first_and_fifth_recording(env, plain_wav):
@@ -1131,3 +1131,12 @@ def test_rehearsal_without_cover_app(env, monkeypatch):
     env.tg.results = {"stopPoll": {"options": [{"voter_count": 1}] + [{"voter_count": 0}] * 6}}
     env.command(EMRE, "/prova bitir")
     assert "Prova günü" in env.tg.sent()[-1] and "Çalınacak" not in env.tg.sent()[-1]
+
+
+def test_gif_when_member_leaves(env):
+    join_all(env, EMRE, CAN)
+    env.message(CAN, left_chat_member=CAN)
+    assert env.tg.sent()[-1] == "👋"
+    env.fs.store["config"]["celebrations"] = {"assigned": {"left": {"type": "animation", "file_id": "BYE", "uid": "b"}}}
+    env.message(EMRE, left_chat_member=EMRE)
+    assert ("sendAnimation", {"chat_id": -1001, "animation": "BYE"}) in env.tg.calls

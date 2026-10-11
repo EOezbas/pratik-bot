@@ -1169,3 +1169,10 @@ def test_left_member_cannot_record_until_katil(env, plain_wav):
 def test_provabitir_joined(env):
     env.command(EMRE, "/provabitir")
     assert "Açık bir prova anketi yok" in env.tg.sent()[-1]
+
+
+def test_reaction_command_variants(env):
+    for cmd, emoji, mid in (("/alkışla", "👏", 7), ("/ateş", "🔥", 8)):
+        env.command(EMRE, cmd, reply_to_message={"message_id": mid})
+        assert ("setMessageReaction", {"chat_id": -1001, "message_id": mid,
+                                       "reaction": [{"type": "emoji", "emoji": emoji}]}) in env.tg.calls

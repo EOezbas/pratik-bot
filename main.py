@@ -453,6 +453,11 @@ def open_songs(uid):
     return sorted((s for s in songs.values() if not s["finished"]), key=lambda s: s["order"], reverse=True)
 
 
+REACTION_COMMANDS = {
+    "/atesle": "🔥", "/ates": "🔥", "/atesledim": "🔥",
+    "/alkis": "👏", "/alkisla": "👏", "/alkisladim": "👏", "/alkislar": "👏",
+}
+
 IDEAS = [
     "Bugün sadece pentatonik, metronom 70'te.",
     "Sevdiğin bir solonun ilk 4 ölçüsünü kulaktan çıkar.",
@@ -1036,11 +1041,11 @@ def handle_command(cmd, msg, user):
                       f"Yeni link: {PUBLIC_URL}/?t={new}", mid)
     elif cmd == "/sil":
         delete_recording(msg, user)
-    elif cmd in ("/atesle", "/alkis"):
+    elif cmd in REACTION_COMMANDS:
         rep = msg.get("reply_to_message")
         if rep:
             tg("setMessageReaction", chat_id=chat_id, message_id=rep["message_id"],
-               reaction=[{"type": "emoji", "emoji": "🔥" if cmd == "/atesle" else "👏"}])
+               reaction=[{"type": "emoji", "emoji": REACTION_COMMANDS[cmd]}])
             tg("deleteMessage", chat_id=chat_id, message_id=mid)
     elif cmd == "/notsil":
         delete_note(msg, user)

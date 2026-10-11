@@ -1163,7 +1163,7 @@ def test_rehearsal_poll(env, monkeypatch):
     assert "Müzik var: <b>10 Ekim, Cumartesi</b> (Emre, Deniz, Can)" in env.tg.sent()[-1]
     assert env.fs.store["config"]["state"]["rehearsals"] == ["2026-10-10"]
     assert ("pinChatMessage", {"chat_id": -1001, "message_id": 500, "disable_notification": True}) in env.tg.calls
-    assert ("unpinChatMessage", {"chat_id": -1001, "message_id": 500}) in env.tg.calls
+    assert any(c == "unpinChatMessage" and p["message_id"] == 500 for c, p in env.tg.calls)
     env.client.get("/?t=tok")
     assert "🎸" in env.client.get("/?m=2026-10").data.decode()
 

@@ -1175,10 +1175,10 @@ def test_rehearsal_thresholds(env, monkeypatch):
     assert env.fs.store["config"]["state"]["rehearsal_poll"]["days"] == ["2026-10-17"]
     answer(env, EMRE, [0]); answer(env, CAN, [1])
     env.command(EMRE, "/provabitir")
-    assert "bu sefer müzik yok (Emre)" in env.tg.sent()[-1]
+    assert env.tg.sent()[-1].endswith("bu sefer müzik yok")
     env.command(EMRE, "/prova")
     answer(env, EMRE, [0]); answer(env, CAN, [0]); answer(env, CAN, [])
     answer(env, DENIZ, [0])
     env.command(EMRE, "/provabitir")
     assert "Müzik olabilir" in env.tg.sent()[-1] and "(Emre, Deniz)" in env.tg.sent()[-1]
-    assert not env.fs.store["config"]["state"].get("rehearsals")
+    assert env.fs.store["config"]["state"]["rehearsals"] == ["2026-10-17"]

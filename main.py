@@ -1205,17 +1205,10 @@ def rehearsal_command(msg, args):
             yes = len(yes_names) if answers else (votes + [0])[0]
             who = f" ({html.escape(', '.join(yes_names))})" if yes_names else ""
             if yes < REHEARSAL_MAYBE:
-                send(chat_id, f"🎸 {tr_date(day)}: bu sefer müzik yok{who}")
+                send(chat_id, f"🎸 {tr_date(day)}: bu sefer müzik yok")
                 return
-            if yes < REHEARSAL_SURE:
-                lines = [f"🎸 Müzik olabilir: <b>{tr_date(day)}</b>{who}"]
-                song = top_cover_song()
-                if song:
-                    name = " – ".join(x for x in (song["title"], song["artist"]) if x)
-                    lines.append(f"🎵 Çalınacak: <b>{html.escape(name)}</b> ({song['score']} oy)")
-                send(chat_id, "\n".join(lines))
-                return
-            lines = [f"🎸 Müzik var: <b>{tr_date(day)}</b>{who}"]
+            label = "Müzik var" if yes >= REHEARSAL_SURE else "Müzik olabilir"
+            lines = [f"🎸 {label}: <b>{tr_date(day)}</b>{who}"]
         else:
             best = votes.index(max(votes))
             day = dt.date.fromisoformat(poll["days"][best])

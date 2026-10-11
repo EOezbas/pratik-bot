@@ -78,7 +78,7 @@ BOT_COMMANDS = [
     ("notsil", "Nota ya da kayda yanıt vererek notu sil"),
     ("metronomvar", "Kayda yanıt vererek metronomlu işaretle"),
     ("metronomyok", "Kayda yanıt vererek metronomsuz işaretle"),
-    ("prova", "Prova günü anketi; /prova bitir ile sonuçlanır"),
+    ("prova", "Cumartesi müzik anketi; /prova bitir ile sonuçlanır"),
     ("ilham", "Rastgele bir pratik fikri"),
     ("zar", "Zar at"),
     ("pratik", "Sohbet modunu bitir"),
@@ -964,7 +964,7 @@ def handle_command(cmd, msg, user):
              "/notsil – bir notuna yanıt olarak yaz, o not silinir; kaydın kendisine yanıt olarak yazarsan tüm notları silinir\n"
              "/atesle, /alkis – yanıt verdiğin mesaja 🔥 ya da 👏 bırakır\n"
              "/zar – zar atar · /ilham – rastgele bir pratik fikri\n"
-             "/prova – 7 günlük prova anketi açar (17:30'dan önce bugün de dahil), /prova bitir en çok seçilen günü duyurur\n"
+             "/prova – cumartesi müzik var mı diye evet/hayır anketi açar, /prova bitir sonucu duyurur\n"
              "/cikar – pratik olmayan bir kayda yanıt olarak yaz, mesaj grupta kalır ama pratik sayılmaz\n"
              "/yenilink – takvim linki grup dışına çıktıysa yenisini oluştur", mid)
     elif cmd == "/katil":
@@ -1151,7 +1151,6 @@ def top_cover_song():
     return {"title": best.get("title", ""), "artist": best.get("artist", ""), "score": tally[best["id"]][0]}
 
 
-REHEARSAL_DAYS = 7
 REHEARSAL_TODAY_UNTIL = dt.time(17, 30)
 
 
@@ -1186,13 +1185,22 @@ def rehearsal_command(msg, args):
         tg("unpinChatMessage", chat_id=chat_id, message_id=poll["message_id"])
         votes = [o.get("voter_count", 0) for o in (result or {}).get("options", [])]
         if not votes or max(votes) == 0:
-            send(chat_id, "🎸 Prova anketi kapandı, kimse gün seçmedi.", mid)
+            send(chat_id, "🎸 Prova anketi kapandı, kimse oy vermedi.", mid)
             return
-        best = votes.index(max(votes))
-        day = dt.date.fromisoformat(poll["days"][best])
+        if poll.get("kind") == "yesno":
+            yes, no = (votes + [0, 0])[:2]
+            day = dt.date.fromisoformat(poll["days"][0])
+            tally = f"Evet {yes} · Hayır {no}"
+            if yes <= no:
+                send(chat_id, f"🎸 {tr_date(day)}: bu sefer müzik yok ({tally})")
+                return
+            lines = [f"🎸 Müzik var: <b>{tr_date(day)}</b> ({tally})"]
+        else:
+            best = votes.index(max(votes))
+            day = dt.date.fromisoformat(poll["days"][best])
+            lines = [f"🎸 Prova günü: <b>{tr_date(day)}</b> ({max(votes)} kişi uygun)"]
         days = set(field(state_ref().get(), "rehearsals") or []) | {day.isoformat()}
         update = {"rehearsals": sorted(days)}
-        lines = [f"🎸 Prova günü: <b>{tr_date(day)}</b> ({max(votes)} kişi uygun)"]
         song = top_cover_song()
         if song:
             name = " – ".join(x for x in (song["title"], song["artist"]) if x)
@@ -1206,17 +1214,19 @@ def rehearsal_command(msg, args):
              poll["message_id"])
         return
     now = now_local()
-    # Today is still an option until late afternoon
-    first = 0 if now.time() < REHEARSAL_TODAY_UNTIL else 1
-    days = [now.date() + dt.timedelta(days=i) for i in range(first, first + REHEARSAL_DAYS)]
-    sent = tg("sendPoll", chat_id=chat_id, question="🎸 Prova için hangi günler uygun?",
-              options=[{"text": f"{TR_DAYS[d.weekday()]}, {d.day} {TR_MONTHS[d.month - 1]}"} for d in days],
-              is_anonymous=False, allows_multiple_answers=True)
+    # The coming Saturday; on Saturday itself only until late afternoon
+    ahead = (5 - now.weekday()) % 7
+    if ahead == 0 and now.time() >= REHEARSAL_TODAY_UNTIL:
+        ahead = 7
+    day = now.date() + dt.timedelta(days=ahead)
+    sent = tg("sendPoll", chat_id=chat_id,
+              question=f"🎸 Cumartesi ({day.day} {TR_MONTHS[day.month - 1]}) müzik?",
+              options=[{"text": "Evet"}, {"text": "Hayır"}], is_anonymous=False)
     if sent:
         tg("pinChatMessage", chat_id=chat_id, message_id=sent["message_id"], disable_notification=True)
-        state_ref().set({"rehearsal_poll": {"message_id": sent["message_id"],
+        state_ref().set({"rehearsal_poll": {"message_id": sent["message_id"], "kind": "yesno",
                                             "poll_id": (sent.get("poll") or {}).get("id"),
-                                            "voters": [], "days": [d.isoformat() for d in days]}},
+                                            "voters": [], "days": [day.isoformat()]}},
                         merge=True)
 
 

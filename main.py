@@ -1176,11 +1176,55 @@ def handle_poll_answer(ans):
     poll.update(voters=sorted(voters), answers=answers, names=names)
     # update replaces the map, so retracted answers do not linger
     state_ref().update({"rehearsal_poll": poll})
+    if poll.get("kind") != "yesno":
+        return
+    # Close on its own once music is certain or everyone has answered
+    yes = sum(1 for opts in answers.values() if 0 in opts)
+    members = {m["id"] for m in load_members() if m.get("active")}
+    if yes >= REHEARSAL_SURE or (members and members <= voters):
+        chat_id = get_chat_id()
+        if chat_id:
+            finish_rehearsal(chat_id, poll)
 
 
 def message_link(chat_id, message_id):
     cid = str(chat_id)
     return f"https://t.me/c/{cid[4:]}/{message_id}" if cid.startswith("-100") else None
+
+
+def finish_rehearsal(chat_id, poll, reply_to=None):
+    mid = reply_to
+    state_ref().set({"rehearsal_poll": None}, merge=True)
+    result = tg("stopPoll", chat_id=chat_id, message_id=poll["message_id"])
+    tg("unpinChatMessage", chat_id=chat_id, message_id=poll["message_id"])
+    votes = [o.get("voter_count", 0) for o in (result if isinstance(result, dict) else {}).get("options", [])]
+    if (not votes or max(votes) == 0) and not poll.get("answers"):
+        send(chat_id, "🎸 Prova anketi kapandı, kimse oy vermedi.", mid)
+        return
+    if poll.get("kind") == "yesno":
+        day = dt.date.fromisoformat(poll["days"][0])
+        answers, names = poll.get("answers") or {}, poll.get("names") or {}
+        yes_names = [names.get(u, "?") for u, opts in answers.items() if 0 in opts]
+        yes = len(yes_names) if answers else (votes + [0])[0]
+        who = f" ({html.escape(', '.join(yes_names))})" if yes_names else ""
+        if yes < REHEARSAL_MAYBE:
+            send(chat_id, f"🎸 {tr_date(day)}: bu sefer müzik yok")
+            return
+        label = "Müzik var" if yes >= REHEARSAL_SURE else "Müzik olabilir"
+        lines = [f"🎸 {label}: <b>{tr_date(day)}</b>{who}"]
+    else:
+        best = votes.index(max(votes))
+        day = dt.date.fromisoformat(poll["days"][best])
+        lines = [f"🎸 Prova günü: <b>{tr_date(day)}</b> ({max(votes)} kişi uygun)"]
+    days = set(field(state_ref().get(), "rehearsals") or []) | {day.isoformat()}
+    update = {"rehearsals": sorted(days)}
+    song = top_cover_song()
+    if song:
+        name = " – ".join(x for x in (song["title"], song["artist"]) if x)
+        lines.append(f"🎵 Çalınacak: <b>{html.escape(name)}</b> ({song['score']} oy)")
+        update["rehearsal_songs"] = {**(field(state_ref().get(), "rehearsal_songs") or {}), day.isoformat(): name}
+    state_ref().set(update, merge=True)
+    send(chat_id, "\n".join(lines))
 
 
 def rehearsal_command(msg, args):
@@ -1191,37 +1235,7 @@ def rehearsal_command(msg, args):
         if not poll:
             send(chat_id, "Açık bir prova anketi yok. Başlatmak için /prova yaz.", mid)
             return
-        state_ref().set({"rehearsal_poll": None}, merge=True)
-        result = tg("stopPoll", chat_id=chat_id, message_id=poll["message_id"])
-        tg("unpinChatMessage", chat_id=chat_id, message_id=poll["message_id"])
-        votes = [o.get("voter_count", 0) for o in (result if isinstance(result, dict) else {}).get("options", [])]
-        if (not votes or max(votes) == 0) and not poll.get("answers"):
-            send(chat_id, "🎸 Prova anketi kapandı, kimse oy vermedi.", mid)
-            return
-        if poll.get("kind") == "yesno":
-            day = dt.date.fromisoformat(poll["days"][0])
-            answers, names = poll.get("answers") or {}, poll.get("names") or {}
-            yes_names = [names.get(u, "?") for u, opts in answers.items() if 0 in opts]
-            yes = len(yes_names) if answers else (votes + [0])[0]
-            who = f" ({html.escape(', '.join(yes_names))})" if yes_names else ""
-            if yes < REHEARSAL_MAYBE:
-                send(chat_id, f"🎸 {tr_date(day)}: bu sefer müzik yok")
-                return
-            label = "Müzik var" if yes >= REHEARSAL_SURE else "Müzik olabilir"
-            lines = [f"🎸 {label}: <b>{tr_date(day)}</b>{who}"]
-        else:
-            best = votes.index(max(votes))
-            day = dt.date.fromisoformat(poll["days"][best])
-            lines = [f"🎸 Prova günü: <b>{tr_date(day)}</b> ({max(votes)} kişi uygun)"]
-        days = set(field(state_ref().get(), "rehearsals") or []) | {day.isoformat()}
-        update = {"rehearsals": sorted(days)}
-        song = top_cover_song()
-        if song:
-            name = " – ".join(x for x in (song["title"], song["artist"]) if x)
-            lines.append(f"🎵 Çalınacak: <b>{html.escape(name)}</b> ({song['score']} oy)")
-            update["rehearsal_songs"] = {**(field(state_ref().get(), "rehearsal_songs") or {}), day.isoformat(): name}
-        state_ref().set(update, merge=True)
-        send(chat_id, "\n".join(lines))
+        finish_rehearsal(chat_id, poll, mid)
         return
     if poll:
         send(chat_id, "Zaten açık bir prova anketi var. Sonucu görmek için /prova bitir yaz.",

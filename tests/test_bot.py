@@ -1067,8 +1067,8 @@ def test_reminder_lists_poll_non_voters(env):
     env.tg.results = {"sendPoll": {"message_id": 500, "poll": {"id": "P1"}}}
     env.command(EMRE, "/prova")
     env.main.handle_update({"poll_answer": {"poll_id": "P1", "user": EMRE, "option_ids": [0, 2]}})
-    env.main.handle_update({"poll_answer": {"poll_id": "P1", "user": CAN, "option_ids": [1]}})
-    env.main.handle_update({"poll_answer": {"poll_id": "P1", "user": CAN, "option_ids": []}})
+    env.main.handle_update({"poll_answer": {"poll_id": "P1", "user": {"id": 9, "first_name": "Misafir"}, "option_ids": [1]}})
+    env.main.handle_update({"poll_answer": {"poll_id": "P1", "user": {"id": 9, "first_name": "Misafir"}, "option_ids": []}})
     env.client.post("/cron/reminder", headers={"X-Cron-Secret": "cron"})
     out = env.tg.sent()[-1]
     assert "Prova anketine</a> oy vermeyenler" in out and "Can</a>" in out.split("oy vermeyenler")[1]
@@ -1156,10 +1156,11 @@ def test_rehearsal_poll(env, monkeypatch):
     assert [o["text"] for o in poll["options"]] == ["Evet", "Hayır"]
     env.command(CAN, "/prova")
     assert "Zaten açık" in env.tg.sent()[-1]
-    answer(env, EMRE, [0]); answer(env, CAN, [0]); answer(env, DENIZ, [1]); answer(env, DENIZ, [0])
-    env.tg.results = {"stopPoll": {"options": [{"voter_count": 3}, {"voter_count": 0}]}}
-    env.command(EMRE, "/prova bitir")
-    assert "Müzik var: <b>10 Ekim, Cumartesi</b> (Emre, Can, Deniz)" in env.tg.sent()[-1]
+    answer(env, EMRE, [0]); answer(env, DENIZ, [1]); answer(env, DENIZ, [0]); answer(env, DENIZ, [1])
+    answer(env, CAN, [0])
+    assert env.fs.store["config"]["state"]["rehearsal_poll"]
+    answer(env, DENIZ, [0])
+    assert "Müzik var: <b>10 Ekim, Cumartesi</b> (Emre, Deniz, Can)" in env.tg.sent()[-1]
     assert env.fs.store["config"]["state"]["rehearsals"] == ["2026-10-10"]
     assert ("pinChatMessage", {"chat_id": -1001, "message_id": 500, "disable_notification": True}) in env.tg.calls
     assert ("unpinChatMessage", {"chat_id": -1001, "message_id": 500}) in env.tg.calls
@@ -1182,3 +1183,23 @@ def test_rehearsal_thresholds(env, monkeypatch):
     env.command(EMRE, "/provabitir")
     assert "Müzik olabilir" in env.tg.sent()[-1] and "(Emre, Deniz)" in env.tg.sent()[-1]
     assert env.fs.store["config"]["state"]["rehearsals"] == ["2026-10-17"]
+
+
+def test_rehearsal_auto_finish(env, monkeypatch):
+    m = env.main
+    monkeypatch.setattr(m, "now_local", lambda: dt.datetime(2026, 10, 8, 12, 0, tzinfo=m.TZ))
+    join_all(env, EMRE, CAN, DENIZ)
+    env.tg.results = {"sendPoll": {"message_id": 500, "poll": {"id": "P1"}}}
+    env.command(EMRE, "/prova")
+    answer(env, EMRE, [1]); answer(env, CAN, [0])
+    assert env.fs.store["config"]["state"]["rehearsal_poll"]
+    answer(env, DENIZ, [1])
+    assert env.fs.store["config"]["state"]["rehearsal_poll"] is None
+    assert env.tg.sent()[-1].endswith("bu sefer müzik yok")
+
+    env.command(EMRE, "/prova")
+    for u in (EMRE, CAN):
+        answer(env, u, [0])
+    assert env.fs.store["config"]["state"]["rehearsal_poll"]
+    answer(env, DENIZ, [0])
+    assert "Müzik var" in env.tg.sent()[-1] and env.fs.store["config"]["state"]["rehearsal_poll"] is None

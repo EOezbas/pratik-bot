@@ -1084,7 +1084,7 @@ def test_rehearsal_announces_top_cover_song(env, monkeypatch):
     monkeypatch.setattr(env.main.requests, "get",
                         lambda url, **kw: _m.Mock(json=lambda: data, raise_for_status=lambda: None))
     env.command(EMRE, "/prova")
-    env.tg.results = {"stopPoll": {"options": [{"voter_count": 2}] + [{"voter_count": 0}] * 6}}
+    env.tg.results = {"stopPoll": {"options": [{"voter_count": 3}, {"voter_count": 0}]}}
     env.command(EMRE, "/prova bitir")
     out = env.tg.sent()[-1]
     assert "Çalınacak: <b>Goodbye Stranger – Supertramp</b> (2 oy)" in out
@@ -1137,9 +1137,17 @@ def test_reaction_command_variants(env):
                                        "reaction": [{"type": "emoji", "emoji": emoji}]}) in env.tg.calls
 
 
+DENIZ = {"id": 3, "first_name": "Deniz"}
+
+
+def answer(env, user, opts):
+    env.main.handle_update({"poll_answer": {"poll_id": "P1", "user": user, "option_ids": opts}})
+
+
 def test_rehearsal_poll(env, monkeypatch):
     m = env.main
     monkeypatch.setattr(m, "now_local", lambda: dt.datetime(2026, 10, 8, 12, 0, tzinfo=m.TZ))
+    env.tg.results = {"sendPoll": {"message_id": 500, "poll": {"id": "P1"}}}
     env.command(EMRE, "/prova bitir")
     assert "Açık bir prova anketi yok" in env.tg.sent()[-1]
     env.command(EMRE, "/prova")
@@ -1148,9 +1156,10 @@ def test_rehearsal_poll(env, monkeypatch):
     assert [o["text"] for o in poll["options"]] == ["Evet", "Hayır"]
     env.command(CAN, "/prova")
     assert "Zaten açık" in env.tg.sent()[-1]
-    env.tg.results = {"stopPoll": {"options": [{"voter_count": 3}, {"voter_count": 1}]}}
+    answer(env, EMRE, [0]); answer(env, CAN, [0]); answer(env, DENIZ, [1]); answer(env, DENIZ, [0])
+    env.tg.results = {"stopPoll": {"options": [{"voter_count": 3}, {"voter_count": 0}]}}
     env.command(EMRE, "/prova bitir")
-    assert "Müzik var" in env.tg.sent()[-1] and "Evet 3 · Hayır 1" in env.tg.sent()[-1]
+    assert "Müzik var: <b>10 Ekim, Cumartesi</b> (Emre, Can, Deniz)" in env.tg.sent()[-1]
     assert env.fs.store["config"]["state"]["rehearsals"] == ["2026-10-10"]
     assert ("pinChatMessage", {"chat_id": -1001, "message_id": 500, "disable_notification": True}) in env.tg.calls
     assert ("unpinChatMessage", {"chat_id": -1001, "message_id": 500}) in env.tg.calls
@@ -1158,12 +1167,18 @@ def test_rehearsal_poll(env, monkeypatch):
     assert "🎸" in env.client.get("/?m=2026-10").data.decode()
 
 
-def test_rehearsal_saturday_rollover_and_no(env, monkeypatch):
+def test_rehearsal_thresholds(env, monkeypatch):
     m = env.main
     monkeypatch.setattr(m, "now_local", lambda: dt.datetime(2026, 10, 10, 18, 0, tzinfo=m.TZ))
+    env.tg.results = {"sendPoll": {"message_id": 500, "poll": {"id": "P1"}}}
     env.command(EMRE, "/prova")
     assert env.fs.store["config"]["state"]["rehearsal_poll"]["days"] == ["2026-10-17"]
-    env.tg.results = {"stopPoll": {"options": [{"voter_count": 1}, {"voter_count": 2}]}}
+    answer(env, EMRE, [0]); answer(env, CAN, [1])
     env.command(EMRE, "/provabitir")
-    assert "bu sefer müzik yok" in env.tg.sent()[-1]
+    assert "bu sefer müzik yok (Emre)" in env.tg.sent()[-1]
+    env.command(EMRE, "/prova")
+    answer(env, EMRE, [0]); answer(env, CAN, [0]); answer(env, CAN, [])
+    answer(env, DENIZ, [0])
+    env.command(EMRE, "/provabitir")
+    assert "Müzik olabilir" in env.tg.sent()[-1] and "(Emre, Deniz)" in env.tg.sent()[-1]
     assert not env.fs.store["config"]["state"].get("rehearsals")

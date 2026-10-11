@@ -1152,6 +1152,8 @@ def top_cover_song():
 
 
 REHEARSAL_TODAY_UNTIL = dt.time(17, 30)
+REHEARSAL_SURE = 3  # yes votes for "müzik var"
+REHEARSAL_MAYBE = 2  # yes votes for "müzik olabilir"
 
 
 def handle_poll_answer(ans):
@@ -1160,11 +1162,20 @@ def handle_poll_answer(ans):
     if not poll or ans.get("poll_id") != poll.get("poll_id") or not user:
         return
     voters = set(poll.get("voters") or [])
+    answers = dict(poll.get("answers") or {})
+    names = dict(poll.get("names") or {})
     uid = str(user["id"])
     # An empty answer means the vote was retracted
-    voters = voters | {uid} if ans.get("option_ids") else voters - {uid}
-    poll["voters"] = sorted(voters)
-    state_ref().set({"rehearsal_poll": poll}, merge=True)
+    if ans.get("option_ids"):
+        voters.add(uid)
+        answers[uid] = list(ans["option_ids"])
+        names[uid] = display_name(user)
+    else:
+        voters.discard(uid)
+        answers.pop(uid, None)
+    poll.update(voters=sorted(voters), answers=answers, names=names)
+    # update replaces the map, so retracted answers do not linger
+    state_ref().update({"rehearsal_poll": poll})
 
 
 def message_link(chat_id, message_id):
@@ -1183,18 +1194,28 @@ def rehearsal_command(msg, args):
         state_ref().set({"rehearsal_poll": None}, merge=True)
         result = tg("stopPoll", chat_id=chat_id, message_id=poll["message_id"])
         tg("unpinChatMessage", chat_id=chat_id, message_id=poll["message_id"])
-        votes = [o.get("voter_count", 0) for o in (result or {}).get("options", [])]
-        if not votes or max(votes) == 0:
+        votes = [o.get("voter_count", 0) for o in (result if isinstance(result, dict) else {}).get("options", [])]
+        if (not votes or max(votes) == 0) and not poll.get("answers"):
             send(chat_id, "🎸 Prova anketi kapandı, kimse oy vermedi.", mid)
             return
         if poll.get("kind") == "yesno":
-            yes, no = (votes + [0, 0])[:2]
             day = dt.date.fromisoformat(poll["days"][0])
-            tally = f"Evet {yes} · Hayır {no}"
-            if yes <= no:
-                send(chat_id, f"🎸 {tr_date(day)}: bu sefer müzik yok ({tally})")
+            answers, names = poll.get("answers") or {}, poll.get("names") or {}
+            yes_names = [names.get(u, "?") for u, opts in answers.items() if 0 in opts]
+            yes = len(yes_names) if answers else (votes + [0])[0]
+            who = f" ({html.escape(', '.join(yes_names))})" if yes_names else ""
+            if yes < REHEARSAL_MAYBE:
+                send(chat_id, f"🎸 {tr_date(day)}: bu sefer müzik yok{who}")
                 return
-            lines = [f"🎸 Müzik var: <b>{tr_date(day)}</b> ({tally})"]
+            if yes < REHEARSAL_SURE:
+                lines = [f"🎸 Müzik olabilir: <b>{tr_date(day)}</b>{who}"]
+                song = top_cover_song()
+                if song:
+                    name = " – ".join(x for x in (song["title"], song["artist"]) if x)
+                    lines.append(f"🎵 Çalınacak: <b>{html.escape(name)}</b> ({song['score']} oy)")
+                send(chat_id, "\n".join(lines))
+                return
+            lines = [f"🎸 Müzik var: <b>{tr_date(day)}</b>{who}"]
         else:
             best = votes.index(max(votes))
             day = dt.date.fromisoformat(poll["days"][best])

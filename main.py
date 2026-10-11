@@ -1686,6 +1686,8 @@ def calendar_page():
                 "states": sts, "done": sum(1 for s in sts if s["state"] in ("done", "metro")),
                 "rehearsal": d.isoformat() in rehearsals,
                 "rehearsal_song": rehearsal_songs.get(d.isoformat(), ""),
+                # Stored as "Title – Artist"; the cell only has room for the title
+                "rehearsal_title": rehearsal_songs.get(d.isoformat(), "").split(" – ")[0],
                 "total": len(sts), "has_list": in_month and d <= t and bool(sts),
             })
         weeks.append(row)
@@ -1879,6 +1881,7 @@ table.sum tr.inactive td{color:var(--muted)}
 .day{display:grid;gap:8px;scroll-margin-top:16px}
 .js .day{display:none}
 .js .day.show{display:grid}
+.rsong{font-size:10.5px;line-height:1.2;color:var(--muted);overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow-wrap:break-word;hyphens:auto}
 .cell.sel{background:color-mix(in srgb,var(--accent) 18%,var(--bg));border-color:var(--accent)}
 .dayhead{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:baseline}
 .rec{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:grid;gap:8px;min-width:0}
@@ -1929,6 +1932,7 @@ table.sum tr.inactive td{color:var(--muted)}
            {% if c.has_list %}href="#d-{{ c.iso }}"{% endif %}
            title="{% for s in c.states %}{{ s.name }}: {{ {'done':'kaydetti','metro':'metronomla kaydetti','joker':'joker kullandı','missed':'kaydetmedi','pending':'bekleniyor'}[s.state] }}{% if not loop.last %}&#10;{% endif %}{% endfor %}">
           <span class="top"><span class="num">{{ c.date.day }}{% if c.rehearsal %} <span title="Prova{% if c.rehearsal_song %}: {{ c.rehearsal_song }}{% endif %}">🎸</span>{% endif %}</span>{% if c.total %}<span class="cnt">{{ c.done }}/{{ c.total }}</span>{% endif %}</span>
+          {% if c.rehearsal_title %}<span class="rsong">{{ c.rehearsal_title }}</span>{% endif %}
           <span class="dots">{% for s in c.states %}<i class="dot {{ s.state }}"></i>{% endfor %}</span>
         </a>
       {% endfor %}{% endfor %}

@@ -1203,3 +1203,15 @@ def test_rehearsal_auto_finish(env, monkeypatch):
     assert env.fs.store["config"]["state"]["rehearsal_poll"]
     answer(env, DENIZ, [0])
     assert "Müzik var" in env.tg.sent()[-1] and env.fs.store["config"]["state"]["rehearsal_poll"] is None
+
+
+def test_song_without_note_not_listed(env, plain_wav):
+    join_all(env, EMRE)
+    env.tg.next_file = plain_wav
+    env.message(EMRE, audio={"file_id": "f", "duration": 20, "file_name": "Creep.mp3"})
+    env.command(EMRE, "/sarkilarim")
+    assert "Bitmeyen şarkın yok" in env.tg.sent()[-1]
+    env.tg.next_file = plain_wav
+    env.message(EMRE, audio={"file_id": "f", "duration": 20, "file_name": "Creep 2.mp3"}, caption="nakarata kadar")
+    env.command(EMRE, "/sarkilarim")
+    assert "Creep — nakarata kadar" in env.tg.sent()[-1]

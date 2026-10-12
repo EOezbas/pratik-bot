@@ -450,7 +450,9 @@ def open_songs(uid):
                 s["title"] = title
         if progress and (s["p_order"] is None or order > s["p_order"]):
             s["progress"], s["p_order"] = progress, order
-    return sorted((s for s in songs.values() if not s["finished"]), key=lambda s: s["order"], reverse=True)
+    # A song is listed only once some take of it carries a progress note
+    return sorted((s for s in songs.values() if not s["finished"] and s["progress"]),
+                  key=lambda s: s["order"], reverse=True)
 
 
 REACTION_COMMANDS = {

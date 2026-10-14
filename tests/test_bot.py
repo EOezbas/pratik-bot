@@ -1215,3 +1215,21 @@ def test_song_without_note_not_listed(env, plain_wav):
     env.message(EMRE, audio={"file_id": "f", "duration": 20, "file_name": "Creep 2.mp3"}, caption="nakarata kadar")
     env.command(EMRE, "/sarkilarim")
     assert "Creep — nakarata kadar" in env.tg.sent()[-1]
+
+
+def test_admin_removes_rehearsal_day(env, monkeypatch):
+    m = env.main
+    monkeypatch.setattr(m, "now_local", lambda: dt.datetime(2026, 10, 14, 12, 0, tzinfo=m.TZ))
+    make_admin(env)
+    st = env.fs.store["config"]["state"]
+    st["rehearsals"] = ["2026-10-10", "2026-10-13"]
+    st["rehearsal_songs"] = {"2026-10-10": "A – B", "2026-10-13": "C – D"}
+    private = {"id": 1, "type": "private"}
+    env.message(CAN, chat={"id": 2, "type": "private"}, text="/provasil 13")
+    assert "sadece yönetici" in env.tg.sent(2)[-1]
+    env.message(EMRE, chat=private, text="/provasil 12")
+    assert "10 Ekim, 13 Ekim" in env.tg.sent(1)[-1]
+    env.message(EMRE, chat=private, text="/provasil 13")
+    env.message(EMRE, chat=private, text="/provasil 10.10")
+    st = env.fs.store["config"]["state"]
+    assert st["rehearsals"] == [] and st["rehearsal_songs"] == {}

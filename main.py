@@ -1442,7 +1442,7 @@ def handle_private(msg):
     labels = milestone_labels(cel)
     label_to_key = {label: key for key, label in labels}
     media = celebration_media(msg)
-    cel_command = cmd in ("/kutlamalar", "/sil", "/ekle", "/cikar")
+    cel_command = cmd in ("/kutlamalar", "/sil", "/ekle", "/cikar", "/provasil")
     if not (media or cel_command or raw in label_to_key or raw == "İptal"):
         send(chat_id, "Bu bot sadece pratik grubunda çalışıyor.")
         return
@@ -1482,6 +1482,8 @@ def handle_private(msg):
         run_in_background(list_celebrations, chat_id, cel)
     elif cmd in ("/ekle", "/cikar"):
         change_milestone(chat_id, cmd == "/ekle", text.split()[1:], cel)
+    elif cmd == "/provasil":
+        remove_rehearsal(chat_id, text.split()[1:])
     else:
         rep = msg.get("reply_to_message") or {}
         target = celebration_media(rep)
@@ -2051,6 +2053,33 @@ if (ch) ch.addEventListener("click", function (e) {
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "8080")), debug=True)
+
+
+def remove_rehearsal(chat_id, args):
+    """Admin: drop a rehearsal day from the calendar. Accepts 13, 13.10 or 2026-10-13."""
+    days = list(field(state_ref().get(), "rehearsals") or [])
+    t = today()
+    day = None
+    if args:
+        a = args[0]
+        try:
+            if re.fullmatch(r"\d{4}-\d{2}-\d{2}", a):
+                day = dt.date.fromisoformat(a)
+            elif re.fullmatch(r"\d{1,2}[./]\d{1,2}", a):
+                d, mo = map(int, re.split(r"[./]", a))
+                day = dt.date(t.year, mo, d)
+            elif a.isdigit():
+                day = t.replace(day=int(a))
+        except ValueError:
+            day = None
+    if not day or day.isoformat() not in days:
+        listed = ", ".join(tr_date(dt.date.fromisoformat(d), False) for d in sorted(days)) or "yok"
+        send(chat_id, f"Örnek: /provasil 13 ya da /provasil 13.10\nİşaretli prova günleri: {listed}")
+        return
+    songs = dict(field(state_ref().get(), "rehearsal_songs") or {})
+    songs.pop(day.isoformat(), None)
+    state_ref().update({"rehearsals": [d for d in days if d != day.isoformat()], "rehearsal_songs": songs})
+    send(chat_id, f"🗑 {tr_date(day)} takvimden kaldırıldı.")
 
 
 def change_milestone(chat_id, add, args, cel):

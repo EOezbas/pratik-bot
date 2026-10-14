@@ -1231,8 +1231,22 @@ def finish_rehearsal(chat_id, poll, reply_to=None):
         lines.append(f"🎵 Çalınacak: <b>{html.escape(name)}</b> ({song['score']} oy)")
         update["rehearsal_songs"] = {**(field(state_ref().get(), "rehearsal_songs") or {}), day.isoformat(): name}
     state_ref().set(update, merge=True)
-    send(chat_id, "\n".join(lines))
+    sent = send(chat_id, "\n".join(lines))
     send_celebration(chat_id, "music_maybe" if status == "olabilir" else "music_yes")
+    # The result stays pinned until the rehearsal evening
+    unpin_rehearsal_result(chat_id)
+    if isinstance(sent, dict):
+        tg("pinChatMessage", chat_id=chat_id, message_id=sent["message_id"], disable_notification=True)
+        state_ref().set({"rehearsal_pin": {"message_id": sent["message_id"], "day": day.isoformat()}}, merge=True)
+
+
+def unpin_rehearsal_result(chat_id, until=None):
+    """Unpin the pinned result; with a date, only once that rehearsal day has come."""
+    pin = field(state_ref().get(), "rehearsal_pin")
+    if not pin or (until and pin["day"] > until.isoformat()):
+        return
+    tg("unpinChatMessage", chat_id=chat_id, message_id=pin["message_id"])
+    state_ref().set({"rehearsal_pin": None}, merge=True)
 
 
 def rehearsal_command(msg, args):
@@ -1555,6 +1569,7 @@ def cron_reminder():
         return "no members"
     stats = load_stats()
     missing = [m for m in members if t.isoformat() not in stats.get(m["id"], empty_stats())["days"]]
+    unpin_rehearsal_result(chat_id, until=t)
     if t.weekday() == 0:
         weekly_rehearsal_poll(chat_id)
     poll_lines = upcoming_rehearsal_lines(t) + rehearsal_reminder(chat_id, members)

@@ -1323,3 +1323,24 @@ def test_music_maybe_gif(env, monkeypatch):
     answer(env, EMRE, [0]); answer(env, CAN, [0])
     env.command(EMRE, "/provabitir")
     assert any(c == "sendAnimation" and p["animation"] == "MAYBE" for c, p in env.tg.calls)
+
+
+def test_result_pinned_until_rehearsal_evening(env, monkeypatch):
+    m = env.main
+    now = [dt.datetime(2026, 10, 14, 12, 0, tzinfo=m.TZ)]
+    monkeypatch.setattr(m, "now_local", lambda: now[0])
+    monkeypatch.setattr(m, "today", lambda: now[0].date())
+    join_all(env, EMRE, CAN, DENIZ)
+    env.tg.results = {"sendPoll": {"message_id": 500, "poll": {"id": "P1"}},
+                      "sendMessage": {"message_id": 777}}
+    env.command(EMRE, "/prova")
+    for u in (EMRE, CAN, DENIZ):
+        answer(env, u, [0])
+    assert any(c == "pinChatMessage" and p["message_id"] == 777 for c, p in env.tg.calls)
+    unpins = lambda: [p for c, p in env.tg.calls if c == "unpinChatMessage" and p["message_id"] == 777]
+    now[0] = dt.datetime(2026, 10, 16, 21, 0, tzinfo=m.TZ)
+    env.client.post("/cron/reminder", headers={"X-Cron-Secret": "cron"})
+    assert not unpins()
+    now[0] = dt.datetime(2026, 10, 17, 21, 0, tzinfo=m.TZ)
+    env.client.post("/cron/reminder", headers={"X-Cron-Secret": "cron"})
+    assert len(unpins()) == 1

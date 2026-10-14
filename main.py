@@ -81,7 +81,6 @@ BOT_COMMANDS = [
     ("prova", "Cumartesi müzik anketi; /prova bitir ile sonuçlanır"),
     ("ilham", "Rastgele bir pratik fikri"),
     ("zar", "Zar at"),
-    ("atesle", "Yanıt verdiğin mesaja 🔥 bırak"),
     ("pratik", "Sohbet modunu bitir"),
     ("cikar", "Kaydı pratikten çıkar, mesaj grupta kalır"),
     ("yenilink", "Takvim linkini yenile"),

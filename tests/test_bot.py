@@ -348,7 +348,7 @@ def test_milestones_31_and_69(env):
 def test_milestone_list(env):
     labels = [b["text"] for row in env.main.milestone_keyboard(env.main.load_celebrations())["keyboard"] for b in row]
     assert labels == ["7 gün", "14 gün", "21 gün", "30 gün", "60 gün", "365 gün", "İlk kayıt",
-                      "5. kayıt", "31. kayıt", "50. kayıt", "69. kayıt", "100. kayıt", "Katılma (/katil)", "Ayrılma (/ayril)", "Müzik var", "Müzik yok", "İptal"]
+                      "5. kayıt", "31. kayıt", "50. kayıt", "69. kayıt", "100. kayıt", "Katılma (/katil)", "Ayrılma (/ayril)", "Müzik var", "Müzik olabilir", "Müzik yok", "İptal"]
 
 
 def test_first_and_fifth_recording(env, plain_wav):
@@ -1311,3 +1311,15 @@ def test_music_result_gifs(env, monkeypatch):
     answer(env, EMRE, [1])
     env.command(EMRE, "/provabitir")
     assert any(c == "sendAnimation" and p["animation"] == "NO" for c, p in env.tg.calls)
+
+
+def test_music_maybe_gif(env, monkeypatch):
+    m = env.main
+    monkeypatch.setattr(m, "now_local", lambda: dt.datetime(2026, 10, 8, 12, 0, tzinfo=m.TZ))
+    env.fs.store.setdefault("config", {})["celebrations"] = {"assigned": {
+        "music_maybe": {"type": "animation", "file_id": "MAYBE", "uid": "m"}}}
+    env.tg.results = {"sendPoll": {"message_id": 500, "poll": {"id": "P1"}}}
+    env.command(EMRE, "/prova")
+    answer(env, EMRE, [0]); answer(env, CAN, [0])
+    env.command(EMRE, "/provabitir")
+    assert any(c == "sendAnimation" and p["animation"] == "MAYBE" for c, p in env.tg.calls)

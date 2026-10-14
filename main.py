@@ -1232,7 +1232,7 @@ def finish_rehearsal(chat_id, poll, reply_to=None):
         update["rehearsal_songs"] = {**(field(state_ref().get(), "rehearsal_songs") or {}), day.isoformat(): name}
     state_ref().set(update, merge=True)
     send(chat_id, "\n".join(lines))
-    send_celebration(chat_id, "music_yes")
+    send_celebration(chat_id, "music_maybe" if status == "olabilir" else "music_yes")
 
 
 def rehearsal_command(msg, args):
@@ -1360,7 +1360,7 @@ def milestone_labels(cel):
     return [(f"streak{n}", f"{n} gün") for n in sorted(cel["streaks"])] + \
            [(f"count{n}", "İlk kayıt" if n == 1 else f"{n}. kayıt") for n in sorted(cel["counts"])] + \
            [("join", "Katılma (/katil)"), ("leave", "Ayrılma (/ayril)"),
-            ("music_yes", "Müzik var"), ("music_no", "Müzik yok")]
+            ("music_yes", "Müzik var"), ("music_maybe", "Müzik olabilir"), ("music_no", "Müzik yok")]
 
 
 def celebrations_ref():

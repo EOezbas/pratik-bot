@@ -1213,6 +1213,7 @@ def finish_rehearsal(chat_id, poll, reply_to=None):
         who = f" ({html.escape(', '.join(yes_names))})" if yes_names else ""
         if yes < REHEARSAL_MAYBE:
             send(chat_id, f"🎸 {tr_date(day)}: bu sefer müzik yok")
+            send_celebration(chat_id, "music_no")
             return
         status = "var" if yes >= REHEARSAL_SURE else "olabilir"
         lines = [f"🎸 Müzik {status}: <b>{tr_date(day)}</b>{who}"]
@@ -1231,6 +1232,7 @@ def finish_rehearsal(chat_id, poll, reply_to=None):
         update["rehearsal_songs"] = {**(field(state_ref().get(), "rehearsal_songs") or {}), day.isoformat(): name}
     state_ref().set(update, merge=True)
     send(chat_id, "\n".join(lines))
+    send_celebration(chat_id, "music_yes")
 
 
 def rehearsal_command(msg, args):
@@ -1357,7 +1359,8 @@ def delete_recording(msg, user, keep_message=False):
 def milestone_labels(cel):
     return [(f"streak{n}", f"{n} gün") for n in sorted(cel["streaks"])] + \
            [(f"count{n}", "İlk kayıt" if n == 1 else f"{n}. kayıt") for n in sorted(cel["counts"])] + \
-           [("join", "Katılma (/katil)"), ("leave", "Ayrılma (/ayril)")]
+           [("join", "Katılma (/katil)"), ("leave", "Ayrılma (/ayril)"),
+            ("music_yes", "Müzik var"), ("music_no", "Müzik yok")]
 
 
 def celebrations_ref():
@@ -1386,12 +1389,13 @@ def send_media(chat_id, item):
     return tg(method, chat_id=chat_id, **{item["type"]: item["file_id"]})
 
 
-def send_celebration(chat_id, key, emoji):
+def send_celebration(chat_id, key, emoji=None):
     item = load_celebrations()["assigned"].get(key)
     if item and send_media(chat_id, item):
         return
     # A message with a single emoji shows up large and animated
-    tg("sendMessage", chat_id=chat_id, text=emoji)
+    if emoji:
+        tg("sendMessage", chat_id=chat_id, text=emoji)
 
 
 SEND_GAP_SEC = 1.0  # stays under Telegram's per-chat rate limit

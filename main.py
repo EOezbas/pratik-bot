@@ -966,7 +966,7 @@ def handle_command(cmd, msg, user):
              "/notsil – bir notuna yanıt olarak yaz, o not silinir; kaydın kendisine yanıt olarak yazarsan tüm notları silinir\n"
              "/atesle, /alkis – yanıt verdiğin mesaja 🔥 ya da 👏 bırakır\n"
              "/zar – zar atar · /ilham – rastgele bir pratik fikri\n"
-             "/prova – cumartesi müzik var mı diye evet/hayır anketi açar, /prova bitir sonucu duyurur\n"
+             "/prova – cumartesi müzik var mı diye evet/hayır anketi açar (pazartesi 21:00'de bot kendisi de açar), /prova bitir sonucu duyurur\n"
              "/cikar – pratik olmayan bir kayda yanıt olarak yaz, mesaj grupta kalır ama pratik sayılmaz\n"
              "/yenilink – takvim linki grup dışına çıktıysa yenisini oluştur", mid)
     elif cmd == "/katil":
@@ -1212,14 +1212,16 @@ def finish_rehearsal(chat_id, poll, reply_to=None):
         if yes < REHEARSAL_MAYBE:
             send(chat_id, f"🎸 {tr_date(day)}: bu sefer müzik yok")
             return
-        label = "Müzik var" if yes >= REHEARSAL_SURE else "Müzik olabilir"
-        lines = [f"🎸 {label}: <b>{tr_date(day)}</b>{who}"]
+        status = "var" if yes >= REHEARSAL_SURE else "olabilir"
+        lines = [f"🎸 Müzik {status}: <b>{tr_date(day)}</b>{who}"]
     else:
         best = votes.index(max(votes))
         day = dt.date.fromisoformat(poll["days"][best])
+        status = "var"
         lines = [f"🎸 Prova günü: <b>{tr_date(day)}</b> ({max(votes)} kişi uygun)"]
     days = set(field(state_ref().get(), "rehearsals") or []) | {day.isoformat()}
-    update = {"rehearsals": sorted(days)}
+    update = {"rehearsals": sorted(days),
+              "rehearsal_status": {**(field(state_ref().get(), "rehearsal_status") or {}), day.isoformat(): status}}
     song = top_cover_song()
     if song:
         name = " – ".join(x for x in (song["title"], song["artist"]) if x)
@@ -1243,12 +1245,20 @@ def rehearsal_command(msg, args):
         send(chat_id, "Zaten açık bir prova anketi var. Sonucu görmek için /prova bitir yaz.",
              poll["message_id"])
         return
+    open_rehearsal_poll(chat_id)
+
+
+def next_saturday():
+    """The coming Saturday; on Saturday itself only until late afternoon."""
     now = now_local()
-    # The coming Saturday; on Saturday itself only until late afternoon
     ahead = (5 - now.weekday()) % 7
     if ahead == 0 and now.time() >= REHEARSAL_TODAY_UNTIL:
         ahead = 7
-    day = now.date() + dt.timedelta(days=ahead)
+    return now.date() + dt.timedelta(days=ahead)
+
+
+def open_rehearsal_poll(chat_id):
+    day = next_saturday()
     sent = tg("sendPoll", chat_id=chat_id,
               question=f"🎸 Cumartesi ({day.day} {TR_MONTHS[day.month - 1]}) müzik?",
               options=[{"text": "Evet"}, {"text": "Hayır"}], is_anonymous=False)
@@ -1537,7 +1547,9 @@ def cron_reminder():
         return "no members"
     stats = load_stats()
     missing = [m for m in members if t.isoformat() not in stats.get(m["id"], empty_stats())["days"]]
-    poll_lines = rehearsal_reminder(chat_id, members)
+    if t.weekday() == 0:
+        weekly_rehearsal_poll(chat_id)
+    poll_lines = upcoming_rehearsal_lines(t) + rehearsal_reminder(chat_id, members)
     if not missing:
         send(chat_id, "\n".join(["Bugün herkes kaydetti ❤"] + poll_lines))
         return "all done"
@@ -1554,6 +1566,38 @@ def cron_reminder():
     lines.append(f"\n{done_n}/{len(members)} kişi kaydetti.")
     send(chat_id, "\n".join(lines + poll_lines))
     return "sent"
+
+
+def weekly_rehearsal_poll(chat_id):
+    """Monday: ask about the coming Saturday unless that is already settled or being asked."""
+    st = state_ref().get()
+    poll = field(st, "rehearsal_poll")
+    sat = next_saturday().isoformat()
+    if poll and poll.get("days", [""])[-1] >= sat:
+        return
+    if sat in (field(st, "rehearsals") or []):
+        return
+    if poll:
+        # A poll for a Saturday that has passed is closed without an announcement
+        tg("stopPoll", chat_id=chat_id, message_id=poll["message_id"])
+        tg("unpinChatMessage", chat_id=chat_id, message_id=poll["message_id"])
+        state_ref().set({"rehearsal_poll": None}, merge=True)
+    open_rehearsal_poll(chat_id)
+
+
+def upcoming_rehearsal_lines(t):
+    """The next settled rehearsal after today, with its song."""
+    st = state_ref().get()
+    later = sorted(d for d in (field(st, "rehearsals") or []) if d > t.isoformat())
+    if not later:
+        return []
+    d = later[0]
+    status = (field(st, "rehearsal_status") or {}).get(d, "var")
+    song = (field(st, "rehearsal_songs") or {}).get(d)
+    line = f"🎸 {tr_date(dt.date.fromisoformat(d))}: müzik {status}"
+    if song:
+        line += f" · çalınacak: <b>{html.escape(song)}</b>"
+    return ["", line]
 
 
 def rehearsal_reminder(chat_id, members):

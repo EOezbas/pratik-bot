@@ -1233,3 +1233,30 @@ def test_admin_removes_rehearsal_day(env, monkeypatch):
     env.message(EMRE, chat=private, text="/provasil 10.10")
     st = env.fs.store["config"]["state"]
     assert st["rehearsals"] == [] and st["rehearsal_songs"] == {}
+
+
+def test_reminder_shows_next_rehearsal_and_monday_poll(env, monkeypatch):
+    m = env.main
+    join_all(env, EMRE)
+    st = env.fs.store["config"]["state"]
+    st["rehearsals"] = ["2026-10-17"]
+    st["rehearsal_songs"] = {"2026-10-17": "Creep – Radiohead"}
+    st["rehearsal_status"] = {"2026-10-17": "olabilir"}
+    env.tg.results = {"sendPoll": {"message_id": 500, "poll": {"id": "P1"}}}
+    for day, shown in ((15, True), (17, False)):
+        now = dt.datetime(2026, 10, day, 21, 0, tzinfo=m.TZ)
+        monkeypatch.setattr(m, "now_local", lambda now=now: now)
+        monkeypatch.setattr(m, "today", lambda now=now: now.date())
+        env.client.post("/cron/reminder", headers={"X-Cron-Secret": "cron"})
+        out = env.tg.sent()[-1]
+        assert ("müzik olabilir · çalınacak: <b>Creep – Radiohead</b>" in out) == shown
+    assert not [c for c, p in env.tg.calls if c == "sendPoll"]
+
+    now = dt.datetime(2026, 10, 19, 21, 0, tzinfo=m.TZ)
+    monkeypatch.setattr(m, "now_local", lambda: now)
+    monkeypatch.setattr(m, "today", lambda: now.date())
+    env.client.post("/cron/reminder", headers={"X-Cron-Secret": "cron"})
+    polls = [p for c, p in env.tg.calls if c == "sendPoll"]
+    assert len(polls) == 1 and polls[0]["question"] == "🎸 Cumartesi (24 Ekim) müzik?"
+    env.client.post("/cron/reminder", headers={"X-Cron-Secret": "cron"})
+    assert len([c for c, p in env.tg.calls if c == "sendPoll"]) == 1

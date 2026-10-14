@@ -1249,7 +1249,7 @@ def test_reminder_shows_next_rehearsal_and_monday_poll(env, monkeypatch):
         monkeypatch.setattr(m, "today", lambda now=now: now.date())
         env.client.post("/cron/reminder", headers={"X-Cron-Secret": "cron"})
         out = env.tg.sent()[-1]
-        assert ("🎸 17 Ekim, Cumartesi (olabilir): <b>Creep – Radiohead</b>" in out) == shown
+        assert ("🎸 17 Ekim, Cumartesi (2 kişi): <b>Creep – Radiohead</b>" in out) == shown
     assert not [c for c, p in env.tg.calls if c == "sendPoll"]
 
     now = dt.datetime(2026, 10, 19, 21, 0, tzinfo=m.TZ)
@@ -1262,15 +1262,20 @@ def test_reminder_shows_next_rehearsal_and_monday_poll(env, monkeypatch):
     assert len([c for c, p in env.tg.calls if c == "sendPoll"]) == 1
 
 
-def test_provalar_lists_songs(env, monkeypatch):
+def test_provalar_in_private(env, monkeypatch):
     m = env.main
     monkeypatch.setattr(m, "today", lambda: dt.date(2026, 10, 14))
-    env.command(EMRE, "/provalar")
-    assert "Henüz prova yok" in env.tg.sent()[-1]
+    join_all(env, CAN)
+    private = {"id": 2, "type": "private"}
+    env.message(CAN, chat=private, text="/provalar")
+    assert "Henüz prova yok" in env.tg.sent(2)[-1]
     st = env.fs.store.setdefault("config", {}).setdefault("state", {})
     st["rehearsals"] = ["2026-10-10", "2026-10-17"]
     st["rehearsal_songs"] = {"2026-10-10": "Creep – Radiohead", "2026-10-17": "Yesterday – The Beatles"}
     st["rehearsal_status"] = {"2026-10-17": "olabilir"}
-    env.command(EMRE, "/provalar")
-    out = env.tg.sent()[-1]
-    assert out.index("17 Ekim (olabilir): Yesterday – The Beatles ⏳") < out.index("10 Ekim: Creep – Radiohead")
+    env.message(CAN, chat=private, text="/provalar")
+    out = env.tg.sent(2)[-1]
+    assert out.index("17 Ekim (2 kişi): Yesterday – The Beatles ⏳") < out.index("10 Ekim: Creep – Radiohead")
+    n = len(env.tg.sent())
+    env.command(CAN, "/provalar")
+    assert len(env.tg.sent()) == n

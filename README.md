@@ -36,7 +36,7 @@ Arkadaş grubunun günlük müzik pratiği alışkanlığı için bir Telegram b
 | `/metronomvar`, `/metronomyok` | Bot metronomu yanlış algıladıysa kayda yanıt olarak yazınca düzeltilir; `/metronomvar 120` ile BPM de girilebilir (kendi kaydın; yönetici herkesinkini) |
 | `/notsil` | Bir nota yanıt olarak yazınca o not, kaydın kendisine yanıt olarak yazınca kaydın tüm notları takvimden silinir |
 | `/prova` | Yaklaşan cumartesi için evet/hayır anketi açar (cumartesi 17:30'dan sonra bir sonraki cumartesi); `/prova bitir` (ya da `/provabitir`) anketi kapatır, evet çoğunluktaysa günü ve şarkı oylama uygulamasında en çok oy alan şarkıyı duyurur, günü takvimde 🎸 ile işaretler. Bot her pazartesi 21:00'de anketi kendisi açar; kararlaştırılan gün ve şarkı, o güne kadar her akşamki hatırlatmada yazar |
-| `/provalar` | Geçmiş ve sıradaki provaların tarihleri ve çalınan şarkılar |
+| `/provalar` | Bota özelden yazılır: geçmiş ve sıradaki provaların tarihleri ve çalınan şarkılar |
 | `/atesle`, `/alkis` | Yanıt verilen mesaja 🔥 ya da 👏 bırakır, başka bir şeyi etkilemez |
 | `/zar`, `/ilham` | Zar atar · rastgele bir pratik fikri yazar |
 | `/yenilink` | Takvim linkini yeniler, eski link çalışmaz olur |

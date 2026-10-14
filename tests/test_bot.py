@@ -1281,3 +1281,16 @@ def test_provalar_in_private(env, monkeypatch):
     n = len(env.tg.sent())
     env.command(CAN, "/provalar")
     assert len(env.tg.sent()) == n
+
+
+def test_rehearsal_closes_when_music_impossible(env, monkeypatch):
+    m = env.main
+    monkeypatch.setattr(m, "now_local", lambda: dt.datetime(2026, 10, 8, 12, 0, tzinfo=m.TZ))
+    join_all(env, EMRE, CAN, DENIZ)
+    env.tg.results = {"sendPoll": {"message_id": 500, "poll": {"id": "P1"}}}
+    env.command(EMRE, "/prova")
+    answer(env, EMRE, [1])
+    assert env.fs.store["config"]["state"]["rehearsal_poll"]
+    answer(env, CAN, [1])
+    assert env.fs.store["config"]["state"]["rehearsal_poll"] is None
+    assert env.tg.sent()[-1].endswith("bu sefer müzik yok")

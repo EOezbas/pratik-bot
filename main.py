@@ -1181,10 +1181,12 @@ def handle_poll_answer(ans):
     state_ref().update({"rehearsal_poll": poll})
     if poll.get("kind") != "yesno":
         return
-    # Close on its own once music is certain or everyone has answered
+    # Close on its own once the outcome can no longer change: music is certain,
+    # music is impossible even if everyone left says yes, or everyone has answered
     yes = sum(1 for opts in answers.values() if 0 in opts)
     members = {m["id"] for m in load_members() if m.get("active")}
-    if yes >= REHEARSAL_SURE or (members and members <= voters):
+    waiting = members - voters
+    if yes >= REHEARSAL_SURE or (members and (yes + len(waiting) < REHEARSAL_MAYBE or not waiting)):
         chat_id = get_chat_id()
         if chat_id:
             finish_rehearsal(chat_id, poll)

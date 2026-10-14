@@ -1260,3 +1260,17 @@ def test_reminder_shows_next_rehearsal_and_monday_poll(env, monkeypatch):
     assert len(polls) == 1 and polls[0]["question"] == "🎸 Cumartesi (24 Ekim) müzik?"
     env.client.post("/cron/reminder", headers={"X-Cron-Secret": "cron"})
     assert len([c for c, p in env.tg.calls if c == "sendPoll"]) == 1
+
+
+def test_provalar_lists_songs(env, monkeypatch):
+    m = env.main
+    monkeypatch.setattr(m, "today", lambda: dt.date(2026, 10, 14))
+    env.command(EMRE, "/provalar")
+    assert "Henüz prova yok" in env.tg.sent()[-1]
+    st = env.fs.store.setdefault("config", {}).setdefault("state", {})
+    st["rehearsals"] = ["2026-10-10", "2026-10-17"]
+    st["rehearsal_songs"] = {"2026-10-10": "Creep – Radiohead", "2026-10-17": "Yesterday – The Beatles"}
+    st["rehearsal_status"] = {"2026-10-17": "olabilir"}
+    env.command(EMRE, "/provalar")
+    out = env.tg.sent()[-1]
+    assert out.index("17 Ekim (olabilir): Yesterday – The Beatles ⏳") < out.index("10 Ekim: Creep – Radiohead")

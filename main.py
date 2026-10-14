@@ -79,6 +79,7 @@ BOT_COMMANDS = [
     ("metronomvar", "Kayda yanıt vererek metronomlu işaretle"),
     ("metronomyok", "Kayda yanıt vererek metronomsuz işaretle"),
     ("prova", "Cumartesi müzik anketi; /prova bitir ile sonuçlanır"),
+    ("provalar", "Provalar ve çalınan şarkılar"),
     ("ilham", "Rastgele bir pratik fikri"),
     ("zar", "Zar at"),
     ("pratik", "Sohbet modunu bitir"),
@@ -965,6 +966,7 @@ def handle_command(cmd, msg, user):
              "/metronomvar, /metronomyok – bot metronomu yanlış algıladıysa kayda yanıt olarak yaz (/metronomvar 120 ile BPM de girebilirsin)\n"
              "/notsil – bir notuna yanıt olarak yaz, o not silinir; kaydın kendisine yanıt olarak yazarsan tüm notları silinir\n"
              "/atesle, /alkis – yanıt verdiğin mesaja 🔥 ya da 👏 bırakır\n"
+             "/provalar – geçmiş ve sıradaki provalar, çalınan şarkılarla\n"
              "/zar – zar atar · /ilham – rastgele bir pratik fikri\n"
              "/prova – cumartesi müzik var mı diye evet/hayır anketi açar (pazartesi 21:00'de bot kendisi de açar), /prova bitir sonucu duyurur\n"
              "/cikar – pratik olmayan bir kayda yanıt olarak yaz, mesaj grupta kalır ama pratik sayılmaz\n"
@@ -1068,6 +1070,8 @@ def handle_command(cmd, msg, user):
         set_metronome(msg, user, cmd == "/metronomvar", (msg.get("text") or "").split()[1:])
     elif cmd == "/prova":
         rehearsal_command(msg, (msg.get("text") or "").split()[1:])
+    elif cmd == "/provalar":
+        send(chat_id, rehearsal_history(), mid)
     elif cmd == "/provabitir":
         rehearsal_command(msg, ["bitir"])
     elif cmd == "/zar":
@@ -1583,6 +1587,22 @@ def weekly_rehearsal_poll(chat_id):
         tg("unpinChatMessage", chat_id=chat_id, message_id=poll["message_id"])
         state_ref().set({"rehearsal_poll": None}, merge=True)
     open_rehearsal_poll(chat_id)
+
+
+def rehearsal_history():
+    st = state_ref().get()
+    days = sorted(field(st, "rehearsals") or [], reverse=True)
+    if not days:
+        return "🎸 Henüz prova yok."
+    songs = field(st, "rehearsal_songs") or {}
+    status = field(st, "rehearsal_status") or {}
+    t = today().isoformat()
+    lines = ["🎸 <b>Provalar</b>"]
+    for d in days[:30]:
+        tag = " (olabilir)" if status.get(d) == "olabilir" else ""
+        soon = " ⏳" if d > t else ""
+        lines.append(f"• {tr_date(dt.date.fromisoformat(d), False)}{tag}: {html.escape(songs.get(d) or '–')}{soon}")
+    return "\n".join(lines)
 
 
 def upcoming_rehearsal_lines(t):

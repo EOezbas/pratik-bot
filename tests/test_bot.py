@@ -1265,16 +1265,18 @@ def test_reminder_shows_next_rehearsal_and_monday_poll(env, monkeypatch):
 def test_provalar_in_private(env, monkeypatch):
     m = env.main
     monkeypatch.setattr(m, "today", lambda: dt.date(2026, 10, 14))
-    join_all(env, CAN)
-    private = {"id": 2, "type": "private"}
-    env.message(CAN, chat=private, text="/provalar")
-    assert "Henüz prova yok" in env.tg.sent(2)[-1]
+    make_admin(env)
+    env.message(CAN, chat={"id": 2, "type": "private"}, text="/provalar")
+    assert "sadece yönetici" in env.tg.sent(2)[-1]
+    private = {"id": 1, "type": "private"}
+    env.message(EMRE, chat=private, text="/provalar")
+    assert "Henüz prova yok" in env.tg.sent(1)[-1]
     st = env.fs.store.setdefault("config", {}).setdefault("state", {})
     st["rehearsals"] = ["2026-10-10", "2026-10-17"]
     st["rehearsal_songs"] = {"2026-10-10": "Creep – Radiohead", "2026-10-17": "Yesterday – The Beatles"}
     st["rehearsal_status"] = {"2026-10-17": "olabilir"}
-    env.message(CAN, chat=private, text="/provalar")
-    out = env.tg.sent(2)[-1]
+    env.message(EMRE, chat=private, text="/provalar")
+    out = env.tg.sent(1)[-1]
     assert out.index("17 Ekim (2 kişi): Yesterday – The Beatles ⏳") < out.index("10 Ekim: Creep – Radiohead")
     n = len(env.tg.sent())
     env.command(CAN, "/provalar")

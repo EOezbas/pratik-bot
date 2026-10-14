@@ -965,7 +965,6 @@ def handle_command(cmd, msg, user):
              "/metronomvar, /metronomyok – bot metronomu yanlış algıladıysa kayda yanıt olarak yaz (/metronomvar 120 ile BPM de girebilirsin)\n"
              "/notsil – bir notuna yanıt olarak yaz, o not silinir; kaydın kendisine yanıt olarak yazarsan tüm notları silinir\n"
              "/atesle, /alkis – yanıt verdiğin mesaja 🔥 ya da 👏 bırakır\n"
-             "/provalar – bota özelden yaz: geçmiş ve sıradaki provalar, çalınan şarkılarla\n"
              "/zar – zar atar · /ilham – rastgele bir pratik fikri\n"
              "/prova – cumartesi müzik var mı diye evet/hayır anketi açar (pazartesi 21:00'de bot kendisi de açar), /prova bitir sonucu duyurur\n"
              "/cikar – pratik olmayan bir kayda yanıt olarak yaz, mesaj grupta kalır ama pratik sayılmaz\n"
@@ -1452,12 +1451,8 @@ def handle_private(msg):
     cel = load_celebrations()
     labels = milestone_labels(cel)
     label_to_key = {label: key for key, label in labels}
-    if cmd == "/provalar":
-        send(chat_id, rehearsal_history())
-        return
-
     media = celebration_media(msg)
-    cel_command = cmd in ("/kutlamalar", "/sil", "/ekle", "/cikar", "/provasil")
+    cel_command = cmd in ("/kutlamalar", "/sil", "/ekle", "/cikar", "/provasil", "/provalar")
     if not (media or cel_command or raw in label_to_key or raw == "İptal"):
         send(chat_id, "Bu bot sadece pratik grubunda çalışıyor.")
         return
@@ -1499,6 +1494,8 @@ def handle_private(msg):
         change_milestone(chat_id, cmd == "/ekle", text.split()[1:], cel)
     elif cmd == "/provasil":
         remove_rehearsal(chat_id, text.split()[1:])
+    elif cmd == "/provalar":
+        send(chat_id, rehearsal_history())
     else:
         rep = msg.get("reply_to_message") or {}
         target = celebration_media(rep)

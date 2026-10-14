@@ -1594,9 +1594,11 @@ def upcoming_rehearsal_lines(t):
     d = later[0]
     status = (field(st, "rehearsal_status") or {}).get(d, "var")
     song = (field(st, "rehearsal_songs") or {}).get(d)
-    line = f"🎸 {tr_date(dt.date.fromisoformat(d))}: müzik {status}"
+    line = f"🎸 {tr_date(dt.date.fromisoformat(d))}"
+    if status == "olabilir":
+        line += " (olabilir)"
     if song:
-        line += f" · çalınacak: <b>{html.escape(song)}</b>"
+        line += f": <b>{html.escape(song)}</b>"
     return ["", line]
 
 

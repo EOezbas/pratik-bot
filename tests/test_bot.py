@@ -1249,7 +1249,7 @@ def test_reminder_shows_next_rehearsal_and_monday_poll(env, monkeypatch):
         monkeypatch.setattr(m, "today", lambda now=now: now.date())
         env.client.post("/cron/reminder", headers={"X-Cron-Secret": "cron"})
         out = env.tg.sent()[-1]
-        assert ("müzik olabilir · çalınacak: <b>Creep – Radiohead</b>" in out) == shown
+        assert ("🎸 17 Ekim, Cumartesi (olabilir): <b>Creep – Radiohead</b>" in out) == shown
     assert not [c for c, p in env.tg.calls if c == "sendPoll"]
 
     now = dt.datetime(2026, 10, 19, 21, 0, tzinfo=m.TZ)

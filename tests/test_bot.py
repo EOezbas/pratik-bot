@@ -1363,11 +1363,11 @@ def test_background_job_runs_as_own_request(env, monkeypatch):
         def close(self):
             pass
     monkeypatch.setattr(m.http.client, "HTTPSConnection", Conn)
-    ran = []
-    monkeypatch.setattr(m, "list_celebrations", lambda *a: ran.append(a))
-    m.list_celebrations.__name__ = "list_celebrations"
-    m.run_in_background(m.list_celebrations, 42, {"assigned": {}})
+    monkeypatch.setattr(m, "SEND_GAP_SEC", 0)
+    m.run_in_background(m.list_celebrations, 42)
     assert sent["host"] == "bot.example" and sent["path"] == "/jobs"
     r = env.client.post("/jobs", data=sent["body"], headers=sent["headers"])
-    assert r.status_code == 200 and ran == [(42, {"assigned": {}})]
+    assert r.status_code == 200
+    listing = env.tg.sent(42)[0]
+    assert "7 gün:" in listing and "\n, gün" not in listing
     assert env.client.post("/jobs", data=sent["body"], headers={"Content-Type": "application/json"}).status_code == 403

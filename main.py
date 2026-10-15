@@ -804,7 +804,7 @@ def run_in_background(fn, *args):
         threading.Thread(target=fn, args=args, daemon=True).start()
         return
     url = urllib.parse.urlsplit(PUBLIC_URL)
-    body = json.dumps({"job": fn.__name__, "args": args}, default=str).encode()
+    body = json.dumps({"job": fn.__name__, "args": args}).encode()
     conn = http.client.HTTPSConnection(url.hostname, url.port, timeout=JOB_TIMEOUT_SEC)
     conn.request("POST", f"{url.path}/jobs", body,
                  {"Content-Type": "application/json", "X-Cron-Secret": CRON_SECRET})
@@ -1443,7 +1443,8 @@ def send_celebration(chat_id, key, emoji=None):
 SEND_GAP_SEC = 1.0  # stays under Telegram's per-chat rate limit
 
 
-def list_celebrations(chat_id, cel):
+def list_celebrations(chat_id):
+    cel = load_celebrations()
     assigned, labels = cel["assigned"], milestone_labels(cel)
     lines = ["Kutlamalar:"]
     for key, label in labels:
@@ -1537,7 +1538,7 @@ def handle_private(msg):
            reply_markup={"remove_keyboard": True})
     elif cmd == "/kutlamalar":
         # In the background so the webhook answers at once and Telegram does not resend the command
-        run_in_background(list_celebrations, chat_id, cel)
+        run_in_background(list_celebrations, chat_id)
     elif cmd in ("/ekle", "/cikar"):
         change_milestone(chat_id, cmd == "/ekle", text.split()[1:], cel)
     elif cmd == "/provasil":

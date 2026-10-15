@@ -2,6 +2,8 @@ import calendar
 import datetime as dt
 import hmac
 import html
+import http.client
+import json
 import logging
 import mimetypes
 import os
@@ -11,6 +13,7 @@ import shutil
 import tempfile
 import threading
 import time
+import urllib.parse
 from zoneinfo import ZoneInfo
 
 import requests
@@ -791,7 +794,32 @@ def save_large_recording(msg, user, media, kind, mime, ext, force=False):
 
 
 def run_in_background(fn, *args):
-    threading.Thread(target=fn, args=args, daemon=True).start()
+    """Runs fn after the webhook has answered.
+
+    Cloud Run only gives CPU while a request is open, so in production the job is
+    posted to /jobs as its own request. The request is sent before returning and
+    only the wait for its answer happens in a thread.
+    """
+    if not PUBLIC_URL:
+        threading.Thread(target=fn, args=args, daemon=True).start()
+        return
+    url = urllib.parse.urlsplit(PUBLIC_URL)
+    body = json.dumps({"job": fn.__name__, "args": args}, default=str).encode()
+    conn = http.client.HTTPSConnection(url.hostname, url.port, timeout=JOB_TIMEOUT_SEC)
+    conn.request("POST", f"{url.path}/jobs", body,
+                 {"Content-Type": "application/json", "X-Cron-Secret": CRON_SECRET})
+
+    def wait():
+        try:
+            conn.getresponse().read()
+        except Exception:
+            log.exception("background job %s did not answer", fn.__name__)
+        finally:
+            conn.close()
+    threading.Thread(target=wait, daemon=True).start()
+
+
+JOB_TIMEOUT_SEC = 900
 
 
 def process_large_recording(msg, user, media, kind, mime, ext, force=False):
@@ -1553,6 +1581,16 @@ def telegram_webhook():
     except Exception:
         log.exception("update failed")
         alert("update", "Bir Telegram mesajı işlenirken hata oluştu, loglara bak.")
+    return "ok"
+
+
+@app.post("/jobs")
+def run_job():
+    if not hmac.compare_digest(request.headers.get("X-Cron-Secret", ""), CRON_SECRET):
+        abort(403)
+    jobs = {f.__name__: f for f in (process_large_recording, list_celebrations)}
+    data = request.get_json(silent=True) or {}
+    jobs[data["job"]](*data["args"])
     return "ok"
 
 

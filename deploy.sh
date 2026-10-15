@@ -59,7 +59,7 @@ ENV_VARS+=",TG_API_ID=${TG_API_ID:-},TG_API_HASH=${TG_API_HASH:-}"
 
 echo "== Cloud Run deploy"
 gcloud run deploy "$SERVICE" --source . --region "$REGION" --allow-unauthenticated \
-  --memory 2Gi --no-cpu-throttling --max-instances 2 --set-env-vars "$ENV_VARS"
+  --memory 2Gi --cpu-throttling --timeout 900 --max-instances 2 --set-env-vars "$ENV_VARS"
 
 URL="$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')"
 gcloud run services update "$SERVICE" --region "$REGION" --update-env-vars "PUBLIC_URL=$URL" >/dev/null

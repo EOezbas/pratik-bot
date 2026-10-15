@@ -1344,3 +1344,30 @@ def test_result_pinned_until_rehearsal_evening(env, monkeypatch):
     now[0] = dt.datetime(2026, 10, 17, 21, 0, tzinfo=m.TZ)
     env.client.post("/cron/reminder", headers={"X-Cron-Secret": "cron"})
     assert len(unpins()) == 1
+
+
+def test_background_job_runs_as_own_request(env, monkeypatch):
+    m = env.main
+    sent = {}
+
+    class Conn:
+        def __init__(self, host, port, timeout):
+            sent["host"] = host
+
+        def request(self, method, path, body, headers):
+            sent.update(path=path, body=body, headers=headers)
+
+        def getresponse(self):
+            return mock.Mock(read=lambda: b"ok")
+
+        def close(self):
+            pass
+    monkeypatch.setattr(m.http.client, "HTTPSConnection", Conn)
+    ran = []
+    monkeypatch.setattr(m, "list_celebrations", lambda *a: ran.append(a))
+    m.list_celebrations.__name__ = "list_celebrations"
+    m.run_in_background(m.list_celebrations, 42, {"assigned": {}})
+    assert sent["host"] == "bot.example" and sent["path"] == "/jobs"
+    r = env.client.post("/jobs", data=sent["body"], headers=sent["headers"])
+    assert r.status_code == 200 and ran == [(42, {"assigned": {}})]
+    assert env.client.post("/jobs", data=sent["body"], headers={"Content-Type": "application/json"}).status_code == 403

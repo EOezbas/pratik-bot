@@ -1371,3 +1371,19 @@ def test_background_job_runs_as_own_request(env, monkeypatch):
     listing = env.tg.sent(42)[0]
     assert "7 gün:" in listing and "\n, gün" not in listing
     assert env.client.post("/jobs", data=sent["body"], headers={"Content-Type": "application/json"}).status_code == 403
+
+
+def test_note_on_take_from_before_supergroup_migration(env, plain_wav):
+    join_all(env, EMRE)
+    env.tg.next_file = plain_wav
+    when = dt.datetime.now(env.main.TZ).replace(microsecond=0)
+    mid = env.message(EMRE, when=when, audio={"file_id": "f", "duration": 20, "file_name": "Child of Vision.mp3"})
+    recs = env.fs.store["recordings"]
+    (key,) = recs
+    recs["-555_7"] = recs.pop(key)
+    old = {"message_id": mid, "from": EMRE, "date": int(when.timestamp()),
+           "audio": {"file_id": "f", "file_name": "Child of Vision.mp3"}}
+    env.message(EMRE, text="solo çalışıyorum", reply_to_message=old)
+    assert env.main.note_text(recs["-555_7"]) == "solo çalışıyorum"
+    env.command(EMRE, "/sarkilarim")
+    assert "Child of Vision — solo çalışıyorum" in env.tg.sent()[-1]

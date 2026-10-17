@@ -564,7 +564,7 @@ def handle_update(upd):
     rep = msg.get("reply_to_message")
     if text and rep and (rep.get("from") or {}).get("id") == user.get("id") and \
             find_media(rep)[0]:
-        ref = db.collection("recordings").document(f'{chat["id"]}_{rep["message_id"]}')
+        ref = recording_ref(chat["id"], rep)
         snap = ref.get()
         if snap.exists:
             notes = dict(field(snap, "notes") or {})
@@ -572,6 +572,29 @@ def handle_update(upd):
             ref.update({"notes": notes, "note_ids": sorted({*(field(snap, "note_ids") or []), msg["message_id"]})})
             tg("setMessageReaction", chat_id=chat["id"], message_id=msg["message_id"],
                reaction=[{"type": "emoji", "emoji": "✍"}])
+
+
+def recording_ref(chat_id, rep):
+    """The stored recording a replied-to message is, found even when its id has changed.
+
+    Takes sent before the group became a supergroup are stored under the old chat id.
+    """
+    ref = db.collection("recordings").document(f'{chat_id}_{rep["message_id"]}')
+    if ref.get().exists:
+        return ref
+    media = find_media(rep)[0] or {}
+    if media.get("file_unique_id"):
+        q = db.collection("recordings").where(filter=FieldFilter("file_uid", "==", media["file_unique_id"]))
+        for snap in q.stream():
+            return db.collection("recordings").document(snap.id)
+    owner = (rep.get("from") or {}).get("id")
+    if owner and rep.get("date"):
+        q = db.collection("recordings").where(filter=FieldFilter("user_id", "==", str(owner)))
+        for snap in q.stream():
+            ts = snap.to_dict().get("ts")
+            if ts and int(ts.timestamp()) == rep["date"]:
+                return db.collection("recordings").document(snap.id)
+    return ref
 
 
 def note_owner(chat_id, note_mid):
@@ -615,7 +638,7 @@ def delete_note(msg, user):
         send(chat_id, "Silmek istediğin nota ya da kaydın kendisine yanıt olarak /notsil yaz.", mid)
         return
     admin = str(get_admin_id() or "") == str(user["id"])
-    ref = db.collection("recordings").document(f'{chat_id}_{rep["message_id"]}')
+    ref = recording_ref(chat_id, rep)
     snap = ref.get()
     if snap.exists:
         if str(field(snap, "user_id")) != str(user["id"]) and not admin:
@@ -1127,7 +1150,7 @@ def set_metronome(msg, user, has_metro, args):
     chat_id = msg["chat"]["id"]
     mid = msg["message_id"]
     rep = msg.get("reply_to_message")
-    ref = db.collection("recordings").document(f'{chat_id}_{rep["message_id"]}') if rep else None
+    ref = recording_ref(chat_id, rep) if rep else None
     snap = ref.get() if ref else None
     if not snap or not snap.exists:
         send(chat_id, "Düzeltmek istediğin kayda yanıt olarak yaz. BPM de ekleyebilirsin: /metronomvar 120", mid)
@@ -1320,7 +1343,7 @@ def mark_song_done(msg, user):
     chat_id = msg["chat"]["id"]
     mid = msg["message_id"]
     rep = msg.get("reply_to_message")
-    ref = db.collection("recordings").document(f'{chat_id}_{rep["message_id"]}') if rep else None
+    ref = recording_ref(chat_id, rep) if rep else None
     snap = ref.get() if ref else None
     if not snap or not snap.exists:
         send(chat_id, "Bitirdiğin şarkının kaydına yanıt olarak /bitti yaz.", mid)
@@ -1350,7 +1373,7 @@ def force_save(msg, user):
     if str(owner.get("id")) != str(user["id"]) and not (admin and str(admin) == str(user["id"])):
         send(chat_id, "Sadece kendi kaydını kaydedebilirsin.", mid)
         return
-    if db.collection("recordings").document(f"{chat_id}_{rep['message_id']}").get().exists:
+    if recording_ref(chat_id, rep).get().exists:
         send(chat_id, "Bu kayıt zaten kaydedilmiş.", mid)
         return
     if has_left(owner.get("id")):
@@ -1367,7 +1390,7 @@ def delete_recording(msg, user, keep_message=False):
     if not rep:
         send(chat_id, f"Bu komutu kayda yanıt olarak yaz: {'/cikar' if keep_message else '/sil'}", mid)
         return
-    ref = db.collection("recordings").document(f'{chat_id}_{rep["message_id"]}')
+    ref = recording_ref(chat_id, rep)
     snap = ref.get()
     if not snap.exists:
         send(chat_id, "Bu mesaj kayıtlı bir pratik kaydı değil.", mid)

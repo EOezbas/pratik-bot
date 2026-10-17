@@ -562,6 +562,9 @@ def handle_update(upd):
 
     # Text reply to own recording becomes its note
     rep = msg.get("reply_to_message")
+    if text and rep:
+        log.warning("reply note check: rep=%s from=%s media=%s keys=%s", rep.get("message_id"),
+                    (rep.get("from") or {}).get("id"), find_media(rep)[1], sorted(rep))
     if text and rep and (rep.get("from") or {}).get("id") == user.get("id") and \
             find_media(rep)[0]:
         ref = recording_ref(chat["id"], rep)

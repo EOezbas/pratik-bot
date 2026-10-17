@@ -512,6 +512,8 @@ def handle_update(upd):
         return
     msg = upd.get("message")
     edited = upd.get("edited_message")
+    log.warning("update debug: %s", {k: sorted(v) if isinstance(v, dict) else v for k, v in
+                                     (msg or upd).items() if k not in ("text", "caption", "from", "chat")})
     if edited:
         handle_edit(edited)
         return

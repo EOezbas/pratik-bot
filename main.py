@@ -512,8 +512,6 @@ def handle_update(upd):
         return
     msg = upd.get("message")
     edited = upd.get("edited_message")
-    log.warning("update debug: %s", {k: sorted(v) if isinstance(v, dict) else v for k, v in
-                                     (msg or upd).items() if k not in ("text", "caption", "from", "chat")})
     if edited:
         handle_edit(edited)
         return
@@ -529,6 +527,8 @@ def handle_update(upd):
         return
     if not accept_chat(chat):
         return
+    if not msg.get("reply_to_message") and msg.get("external_reply"):
+        msg["reply_to_message"] = reply_from_external(msg["external_reply"])
 
     for u in msg.get("new_chat_members", []):
         if not u.get("is_bot"):
@@ -564,9 +564,6 @@ def handle_update(upd):
 
     # Text reply to own recording becomes its note
     rep = msg.get("reply_to_message")
-    if text and rep:
-        log.warning("reply note check: rep=%s from=%s media=%s keys=%s", rep.get("message_id"),
-                    (rep.get("from") or {}).get("id"), find_media(rep)[1], sorted(rep))
     if text and rep and (rep.get("from") or {}).get("id") == user.get("id") and \
             find_media(rep)[0]:
         ref = recording_ref(chat["id"], rep)
@@ -577,6 +574,15 @@ def handle_update(upd):
             ref.update({"notes": notes, "note_ids": sorted({*(field(snap, "note_ids") or []), msg["message_id"]})})
             tg("setMessageReaction", chat_id=chat["id"], message_id=msg["message_id"],
                reaction=[{"type": "emoji", "emoji": "✍"}])
+
+
+def reply_from_external(ext):
+    """Telegram sends replies to some older messages as external_reply, without a message id."""
+    origin = ext.get("origin") or {}
+    rep = {k: v for k, v in ext.items() if k not in ("origin", "chat", "message_id")}
+    rep.update(message_id=ext.get("message_id") or 0, date=origin.get("date"),
+               **{"from": origin.get("sender_user") or {}})
+    return rep
 
 
 def recording_ref(chat_id, rep):

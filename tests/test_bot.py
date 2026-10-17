@@ -1387,3 +1387,15 @@ def test_note_on_take_from_before_supergroup_migration(env, plain_wav):
     assert env.main.note_text(recs["-555_7"]) == "solo çalışıyorum"
     env.command(EMRE, "/sarkilarim")
     assert "Child of Vision — solo çalışıyorum" in env.tg.sent()[-1]
+
+
+def test_note_via_external_reply(env, plain_wav):
+    join_all(env, EMRE)
+    env.tg.next_file = plain_wav
+    when = dt.datetime.now(env.main.TZ).replace(microsecond=0)
+    env.message(EMRE, when=when, audio={"file_id": "f", "duration": 20, "file_name": "Child of Vision.mp3"})
+    ext = {"origin": {"type": "user", "sender_user": EMRE, "date": int(when.timestamp())},
+           "audio": {"file_id": "f", "file_name": "Child of Vision.mp3"}}
+    env.message(EMRE, text="solo çalışıyorum", external_reply=ext)
+    (rec,) = env.fs.store["recordings"].values()
+    assert env.main.note_text(rec) == "solo çalışıyorum"

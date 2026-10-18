@@ -528,7 +528,7 @@ def handle_update(upd):
     if not accept_chat(chat):
         return
     if not msg.get("reply_to_message") and msg.get("external_reply"):
-        msg["reply_to_message"] = reply_from_external(msg["external_reply"])
+        msg["reply_to_message"] = reply_from_external(msg["external_reply"], msg.get("from") or {})
 
     for u in msg.get("new_chat_members", []):
         if not u.get("is_bot"):
@@ -576,12 +576,17 @@ def handle_update(upd):
                reaction=[{"type": "emoji", "emoji": "✍"}])
 
 
-def reply_from_external(ext):
-    """Telegram sends replies to some older messages as external_reply, without a message id."""
+def reply_from_external(ext, replier):
+    """Telegram sends "Reply in..." replies as external_reply, without a message id.
+
+    When the author's account is hidden, the replier is assumed; lookups match only
+    the replier's own takes, so nothing of someone else's is touched.
+    """
     origin = ext.get("origin") or {}
+    log.info("external reply: origin=%s keys=%s", origin.get("type"), sorted(ext))
     rep = {k: v for k, v in ext.items() if k not in ("origin", "chat", "message_id")}
     rep.update(message_id=ext.get("message_id") or 0, date=origin.get("date"),
-               **{"from": origin.get("sender_user") or {}})
+               **{"from": origin.get("sender_user") or replier})
     return rep
 
 

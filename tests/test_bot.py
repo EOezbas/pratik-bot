@@ -1399,3 +1399,15 @@ def test_note_via_external_reply(env, plain_wav):
     env.message(EMRE, text="solo çalışıyorum", external_reply=ext)
     (rec,) = env.fs.store["recordings"].values()
     assert env.main.note_text(rec) == "solo çalışıyorum"
+
+
+def test_note_via_external_reply_hidden_author(env, plain_wav):
+    join_all(env, EMRE)
+    env.tg.next_file = plain_wav
+    when = dt.datetime.now(env.main.TZ).replace(microsecond=0)
+    env.message(EMRE, when=when, audio={"file_id": "f", "duration": 20, "file_name": "Child of Vision.mp3"})
+    ext = {"origin": {"type": "hidden_user", "sender_user_name": "Emre", "date": int(when.timestamp())},
+           "audio": {"file_id": "f", "file_name": "Child of Vision.mp3"}}
+    env.message(EMRE, text="solo", external_reply=ext)
+    (rec,) = env.fs.store["recordings"].values()
+    assert env.main.note_text(rec) == "solo"

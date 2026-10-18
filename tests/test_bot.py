@@ -848,10 +848,10 @@ def test_cikar_drops_recording_but_keeps_message(env, plain_wav):
     vid = env.voice(EMRE, plain_wav)
     env.command(CAN, "/cikar", reply_to_message={"message_id": vid})
     assert "Sadece kendi" in env.tg.sent()[-1]
-    env.command(EMRE, "/çıkar", reply_to_message={"message_id": vid})
+    cmd = env.command(EMRE, "/çıkar", reply_to_message={"message_id": vid})
     assert f"-1001_{vid}" not in env.fs.store["recordings"]
-    assert "Pratikten çıkarıldı" in env.tg.sent()[-1]
-    assert not [p for m, p in env.tg.calls if m == "deleteMessage"]
+    assert [p["message_id"] for m, p in env.tg.calls if m == "deleteMessage"] == [cmd]
+    assert not any("Pratikten çıkarıldı" in s for s in env.tg.sent())
 
 
 def test_chat_mode_skips_recordings_until_ended(env, plain_wav):
@@ -1052,9 +1052,10 @@ def test_manual_metronome_override(env, plain_wav):
     rid = f"-1001_{vid}"
     env.command(CAN, "/metronomvar", reply_to_message={"message_id": vid})
     assert "Sadece kendi" in env.tg.sent()[-1]
-    env.command(EMRE, "/metronomvar 120", reply_to_message={"message_id": vid})
+    cmd = env.command(EMRE, "/metronomvar 120", reply_to_message={"message_id": vid})
     rec = env.fs.store["recordings"][rid]
-    assert rec["metronome"] and rec["bpm"] == 120 and "120 bpm" in env.tg.sent()[-1]
+    assert rec["metronome"] and rec["bpm"] == 120
+    assert ("deleteMessage", {"chat_id": -1001, "message_id": cmd}) in env.tg.calls
     assert ("setMessageReaction", {"chat_id": -1001, "message_id": vid,
                                    "reaction": [{"type": "emoji", "emoji": "🔥"}]}) in env.tg.calls
     env.command(EMRE, "/metronomyok", reply_to_message={"message_id": vid})

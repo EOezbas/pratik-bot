@@ -680,9 +680,9 @@ def delete_note(msg, user):
     delete_command(chat_id, mid, "🗑 Not takvimden silindi.")
 
 
-def delete_command(chat_id, mid, fallback):
+def delete_command(chat_id, mid, fallback=None):
     """Removes the command message; says what happened only if the bot cannot delete it."""
-    if not tg("deleteMessage", chat_id=chat_id, message_id=mid):
+    if not tg("deleteMessage", chat_id=chat_id, message_id=mid) and fallback:
         send(chat_id, fallback, mid)
 
 
@@ -1193,7 +1193,7 @@ def set_metronome(msg, user, has_metro, args):
         text = "❤ Metronomsuz olarak işaretlendi."
     tg("setMessageReaction", chat_id=chat_id, message_id=rep["message_id"],
        reaction=[{"type": "emoji", "emoji": "🔥" if has_metro else "❤"}])
-    send(chat_id, text, mid)
+    delete_command(chat_id, mid, text)
 
 
 COVER_VOTE_URL = os.environ.get("COVER_VOTE_URL", "https://cover-vote-five.vercel.app").rstrip("/")
@@ -1404,6 +1404,7 @@ def force_save(msg, user):
         send(chat_id, "Önce /katil yazmalısın, sonra kaydı ekleyebilirsin.", mid)
         return
     save_recording(rep, owner, media, kind, force=True)
+    delete_command(chat_id, mid)
 
 
 def delete_recording(msg, user, keep_message=False):
@@ -1435,7 +1436,7 @@ def delete_recording(msg, user, keep_message=False):
         return
     if keep_message:
         tg("setMessageReaction", chat_id=chat_id, message_id=rep["message_id"], reaction=[])
-        send(chat_id, "↩️ Pratikten çıkarıldı, mesaj grupta duruyor.", mid)
+        delete_command(chat_id, mid, "↩️ Pratikten çıkarıldı, mesaj grupta duruyor.")
         return
     if tg("deleteMessage", chat_id=chat_id, message_id=rep["message_id"]):
         tg("deleteMessage", chat_id=chat_id, message_id=mid)

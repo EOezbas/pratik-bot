@@ -1411,3 +1411,14 @@ def test_note_via_external_reply_hidden_author(env, plain_wav):
     env.message(EMRE, text="solo", external_reply=ext)
     (rec,) = env.fs.store["recordings"].values()
     assert env.main.note_text(rec) == "solo"
+
+
+def test_notsil_removes_mark_and_command(env, plain_wav):
+    vid = env.voice(EMRE, plain_wav)
+    take = {"message_id": vid, "from": EMRE, "voice": {"file_id": "f"}}
+    nid = env.message(EMRE, text="köprü", reply_to_message=take)
+    cmd = env.command(EMRE, "/notsil", reply_to_message={"message_id": nid, "from": EMRE, "text": "köprü"})
+    calls = env.tg.calls
+    assert ("setMessageReaction", {"chat_id": -1001, "message_id": nid, "reaction": []}) in calls
+    assert any(c == "deleteMessage" and p["message_id"] == cmd for c, p in calls)
+    assert not any("Not takvimden silindi" in t for t in env.tg.sent())

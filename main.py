@@ -661,7 +661,9 @@ def delete_note(msg, user):
             send(chat_id, "Sadece kendi kaydının notlarını silebilirsin.", mid)
             return
         ref.update({"caption": "", "notes": {}, "note_ids": []})
-        send(chat_id, "🗑 Bu kaydın tüm notları takvimden silindi.", mid)
+        for nid in field(snap, "note_ids") or []:
+            tg("setMessageReaction", chat_id=chat_id, message_id=nid, reaction=[])
+        delete_command(chat_id, mid, "🗑 Bu kaydın tüm notları takvimden silindi.")
         return
     found = note_owner(chat_id, rep["message_id"])
     if not found:
@@ -675,7 +677,13 @@ def delete_note(msg, user):
     notes.pop(str(rep["message_id"]), None)
     nref.update({"notes": notes, "note_ids": [i for i in data.get("note_ids") or [] if i != rep["message_id"]]})
     tg("setMessageReaction", chat_id=chat_id, message_id=rep["message_id"], reaction=[])
-    send(chat_id, "🗑 Not takvimden silindi.", mid)
+    delete_command(chat_id, mid, "🗑 Not takvimden silindi.")
+
+
+def delete_command(chat_id, mid, fallback):
+    """Removes the command message; says what happened only if the bot cannot delete it."""
+    if not tg("deleteMessage", chat_id=chat_id, message_id=mid):
+        send(chat_id, fallback, mid)
 
 
 def handle_reaction(r):

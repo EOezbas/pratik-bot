@@ -1088,7 +1088,7 @@ def test_rehearsal_announces_top_cover_song(env, monkeypatch):
     env.tg.results = {"stopPoll": {"options": [{"voter_count": 3}, {"voter_count": 0}]}}
     env.command(EMRE, "/prova bitir")
     out = env.tg.sent()[-1]
-    assert "Çalınacak: <b>Goodbye Stranger – Supertramp (-2)</b> (2 oy)" in out
+    assert "Çalınacak: <b>Goodbye Stranger – Supertramp (-2)</b>" in out and "oy)" not in out
     day = env.fs.store["config"]["state"]["rehearsals"][0]
     assert env.fs.store["config"]["state"]["rehearsal_songs"][day] == "Goodbye Stranger – Supertramp (-2)"
 

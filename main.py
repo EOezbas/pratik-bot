@@ -1306,7 +1306,7 @@ def finish_rehearsal(chat_id, poll, reply_to=None):
         name = " – ".join(x for x in (song["title"], song["artist"]) if x)
         if song.get("key"):
             name += f" ({song['key']})"
-        lines.append(f"🎵 Çalınacak: <b>{html.escape(name)}</b> ({song['score']} oy)")
+        lines.append(f"🎵 Çalınacak: <b>{html.escape(name)}</b>")
         update["rehearsal_songs"] = {**(field(state_ref().get(), "rehearsal_songs") or {}), day.isoformat(): name}
     state_ref().set(update, merge=True)
     sent = send(chat_id, "\n".join(lines))

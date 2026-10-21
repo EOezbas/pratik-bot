@@ -1080,7 +1080,7 @@ def test_reminder_lists_poll_non_voters(env):
 def test_rehearsal_announces_top_cover_song(env, monkeypatch):
     from unittest import mock as _m
     data = {"songs": [{"id": "a", "title": "Creep", "artist": "Radiohead", "createdAt": 1},
-                      {"id": "b", "title": "Goodbye Stranger", "artist": "Supertramp", "createdAt": 2}],
+                      {"id": "b", "title": "Goodbye Stranger", "artist": "Supertramp", "createdAt": 2, "key": "-2"}],
             "votes": {"a|u1": 1, "a|u2": 0, "b|u1": 1, "b|u2": 1, "b|u3": 0}}
     monkeypatch.setattr(env.main.requests, "get",
                         lambda url, **kw: _m.Mock(json=lambda: data, raise_for_status=lambda: None))
@@ -1088,9 +1088,9 @@ def test_rehearsal_announces_top_cover_song(env, monkeypatch):
     env.tg.results = {"stopPoll": {"options": [{"voter_count": 3}, {"voter_count": 0}]}}
     env.command(EMRE, "/prova bitir")
     out = env.tg.sent()[-1]
-    assert "Çalınacak: <b>Goodbye Stranger – Supertramp</b> (2 oy)" in out
+    assert "Çalınacak: <b>Goodbye Stranger – Supertramp (-2)</b> (2 oy)" in out
     day = env.fs.store["config"]["state"]["rehearsals"][0]
-    assert env.fs.store["config"]["state"]["rehearsal_songs"][day] == "Goodbye Stranger – Supertramp"
+    assert env.fs.store["config"]["state"]["rehearsal_songs"][day] == "Goodbye Stranger – Supertramp (-2)"
 
 
 def test_gifs_on_katil_and_ayril(env):

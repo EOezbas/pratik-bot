@@ -1225,7 +1225,8 @@ def top_cover_song():
     best = max(songs, key=lambda s: (tally[s["id"]][0], tally[s["id"]][1], -(s.get("createdAt") or 0)))
     if tally[best["id"]][0] <= 0:
         return None
-    return {"title": best.get("title", ""), "artist": best.get("artist", ""), "score": tally[best["id"]][0]}
+    return {"title": best.get("title", ""), "artist": best.get("artist", ""), "key": best.get("key") or "",
+            "score": tally[best["id"]][0]}
 
 
 REHEARSAL_TODAY_UNTIL = dt.time(17, 30)
@@ -1303,6 +1304,8 @@ def finish_rehearsal(chat_id, poll, reply_to=None):
     song = top_cover_song()
     if song:
         name = " – ".join(x for x in (song["title"], song["artist"]) if x)
+        if song.get("key"):
+            name += f" ({song['key']})"
         lines.append(f"🎵 Çalınacak: <b>{html.escape(name)}</b> ({song['score']} oy)")
         update["rehearsal_songs"] = {**(field(state_ref().get(), "rehearsal_songs") or {}), day.isoformat(): name}
     state_ref().set(update, merge=True)

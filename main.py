@@ -433,6 +433,10 @@ def song_of(rec):
 
 
 def open_songs(uid):
+    return [s for s in all_songs(uid) if not s["finished"]]
+
+
+def all_songs(uid):
     songs = {}
     for snap in db.collection("recordings").where(filter=FieldFilter("user_id", "==", str(uid))).stream():
         r = snap.to_dict()
@@ -453,8 +457,8 @@ def open_songs(uid):
                 s["title"] = title
         if progress and (s["p_order"] is None or order > s["p_order"]):
             s["progress"], s["p_order"] = progress, order
-    # A song is listed only once some take of it carries a progress note
-    return sorted((s for s in songs.values() if not s["finished"] and s["progress"]),
+    # An unfinished song is listed only once some take of it carries a progress note
+    return sorted((s for s in songs.values() if s["finished"] or s["progress"]),
                   key=lambda s: s["order"], reverse=True)
 
 
@@ -1127,16 +1131,19 @@ def handle_command(cmd, msg, user):
     elif cmd == "/notsil":
         delete_note(msg, user)
     elif cmd == "/sarkilarim":
-        songs = open_songs(user["id"])
-        if not songs:
-            send(chat_id, "🎵 Bitmeyen şarkın yok.", mid)
-        else:
-            lines = ["🎵 <b>Bitmeyen şarkıların</b>"]
-            for sg in songs[:25]:
-                d = sg["last"].astimezone(TZ)
-                note = f" — {html.escape(sg['progress'].splitlines()[0][:80])}" if sg["progress"] else ""
-                lines.append(f"• {html.escape(sg['title'])}{note} ({d.day} {TR_MONTHS[d.month - 1][:3]})")
-            send(chat_id, "\n".join(lines), mid)
+        songs = all_songs(user["id"])
+        short = lambda d: f"{d.day} {TR_MONTHS[d.month - 1][:3]}"
+        open_ = [sg for sg in songs if not sg["finished"]]
+        done = [sg for sg in songs if sg["finished"]]
+        lines = ["🎵 <b>Bitmeyen şarkıların</b>"] if open_ else ["🎵 Bitmeyen şarkın yok."]
+        for sg in open_[:25]:
+            note = f" — {html.escape(sg['progress'].splitlines()[0][:80])}" if sg["progress"] else ""
+            lines.append(f"• {html.escape(sg['title'])}{note} ({short(sg['last'].astimezone(TZ))})")
+        if done:
+            # Collapsed so the open songs stay the focus
+            items = "\n".join(f"• {html.escape(sg['title'])} ({short(sg['last'].astimezone(TZ))})" for sg in done[:40])
+            lines.append(f"\n<blockquote expandable>✅ <b>Bitirdiklerin ({len(done)})</b>\n{items}</blockquote>")
+        send(chat_id, "\n".join(lines), mid)
     elif cmd == "/bitti":
         mark_song_done(msg, user)
     elif cmd in ("/metronomvar", "/metronomyok"):

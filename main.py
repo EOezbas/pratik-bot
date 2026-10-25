@@ -432,13 +432,13 @@ def song_of(rec):
     return title, key, progress.strip(), finished
 
 
-# Takes named like exercises are practice, not songs
-EXERCISE_WORDS = ["jam", "jamming", "scale", "scales", "skala", "gam", "gamlar", "arpej", "arpeggio", "arpeggios",
-                  "riff", "riffs", "lick", "licks", "egzersiz", "exercise", "etut", "etude", "calisma",
-                  "isinma", "warmup", "warm up", "dogaclama", "improv", "improvisation", "teknik", "technique",
-                  "metronom", "akor", "chords", "ritim", "groove"]
+# Takes whose name starts a word with one of these are practice, not songs ("riffsiki" counts too)
+EXERCISE_WORDS = ["jam", "scale", "skala", "arpej", "arpeggio", "riff", "lick", "egzersiz", "exercise", "etut",
+                  "etude", "calisma", "isinma", "warmup", "warm up", "dogaclama", "improv", "teknik", "technique",
+                  "metronom", "akor", "chord", "ritim", "groove"]
+# "gam" only as a whole word, so "game" stays a song
 _EXERCISE_RE = re.compile(r"(?<![a-z0-9])(" + "|".join(sorted(map(re.escape, EXERCISE_WORDS), key=len, reverse=True))
-                          + r")(?![a-z0-9])")
+                          + r"|gam(?:lar|lari)?(?![a-z0-9]))")
 
 
 def is_exercise(title):

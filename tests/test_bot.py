@@ -1426,3 +1426,13 @@ def test_notsil_removes_mark_and_command(env, plain_wav):
     assert ("setMessageReaction", {"chat_id": -1001, "message_id": nid, "reaction": []}) in calls
     assert any(c == "deleteMessage" and p["message_id"] == cmd for c, p in calls)
     assert not any("Not takvimden silindi" in t for t in env.tg.sent())
+
+
+def test_exercises_not_listed_as_songs(env, plain_wav):
+    join_all(env, EMRE)
+    for name, cap in [("blues jam.mp3", "shuffle"), ("scale calisma.mp3", "do majör tamamı"), ("Hurt.mp3", "intro")]:
+        env.tg.next_file = plain_wav
+        env.message(EMRE, audio={"file_id": "f", "duration": 20, "file_name": name}, caption=cap)
+    env.command(EMRE, "/sarkilarim")
+    out = env.tg.sent()[-1]
+    assert "Hurt — intro" in out and "jam" not in out and "scale" not in out and "Bitirdiklerin" not in out

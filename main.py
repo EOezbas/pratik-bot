@@ -432,6 +432,19 @@ def song_of(rec):
     return title, key, progress.strip(), finished
 
 
+# Takes named like exercises are practice, not songs
+EXERCISE_WORDS = ["jam", "jamming", "scale", "scales", "skala", "gam", "gamlar", "arpej", "arpeggio", "arpeggios",
+                  "riff", "riffs", "lick", "licks", "egzersiz", "exercise", "etut", "etude", "calisma",
+                  "isinma", "warmup", "warm up", "dogaclama", "improv", "improvisation", "teknik", "technique",
+                  "metronom", "akor", "chords", "ritim", "groove"]
+_EXERCISE_RE = re.compile(r"(?<![a-z0-9])(" + "|".join(sorted(map(re.escape, EXERCISE_WORDS), key=len, reverse=True))
+                          + r")(?![a-z0-9])")
+
+
+def is_exercise(title):
+    return bool(_EXERCISE_RE.search(_fold(title)))
+
+
 def open_songs(uid):
     return [s for s in all_songs(uid) if not s["finished"]]
 
@@ -444,6 +457,8 @@ def all_songs(uid):
         if not info:
             continue
         title, key, progress, finished = info
+        if is_exercise(title):
+            continue
         s = songs.setdefault(key, {"title": title, "finished": False, "last": None, "progress": "",
                                    "order": None, "p_order": None})
         # Message ids break ties between takes sent within the same second

@@ -963,12 +963,15 @@ def test_open_songs_command(env, plain_wav):
     env.message(CAN, audio={"file_id": "f", "duration": 20, "file_name": "Creep.mp3"})
     env.command(EMRE, "/şarkılarım")
     out = env.tg.sent()[-1]
-    assert "Wonderwall — 1. kıtaya kadar" in out and "Yesterday" not in out and "Creep" not in out
+    head, _, done = out.partition("<blockquote expandable>")
+    assert "Wonderwall — 1. kıtaya kadar" in head and "Yesterday" not in head and "Creep" not in out
+    assert "Bitirdiklerin (1)" in done and "Yesterday" in done
     env.command(CAN, "/bitti", reply_to_message={"message_id": last})
     assert "Sadece kendi" in env.tg.sent()[-1]
     env.command(EMRE, "/bitti", reply_to_message={"message_id": last})
     env.command(EMRE, "/sarkilarim")
-    assert "Bitmeyen şarkın yok" in env.tg.sent()[-1]
+    out = env.tg.sent()[-1]
+    assert "Bitmeyen şarkın yok" in out and "Bitirdiklerin (2)" in out and "Wonderwall" in out
 
 
 def test_same_file_twice_same_day_recorded_once(env, plain_wav):

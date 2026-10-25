@@ -165,7 +165,7 @@ def tg(method, **params):
         return None
 
 
-ALLOWED_UPDATES = ["message", "edited_message", "message_reaction", "poll_answer"]
+ALLOWED_UPDATES = ["message", "edited_message", "message_reaction", "poll_answer", "callback_query"]
 
 
 def register_commands():
@@ -528,6 +528,9 @@ def handle_update(upd):
         return
     if upd.get("poll_answer"):
         handle_poll_answer(upd["poll_answer"])
+        return
+    if upd.get("callback_query"):
+        handle_callback(upd["callback_query"])
         return
     msg = upd.get("message")
     edited = upd.get("edited_message")
@@ -1222,18 +1225,22 @@ COVER_VOTE_URL = os.environ.get("COVER_VOTE_URL", "https://cover-vote-five.verce
 COVER_VOTE_CODE = os.environ.get("COVER_VOTE_CODE", "")
 
 
-def top_cover_song():
-    """Highest-scoring song in the cover vote app, ranked the same way the app does, or None."""
+COVER_VOTE_SECRET = os.environ.get("COVER_VOTE_SECRET", "")
+
+
+def cover_ranking():
+    """Songs still in rotation in the cover vote app, best first, ranked the way the app does."""
     if not COVER_VOTE_URL:
-        return None
+        return []
     try:
         r = requests.get(f"{COVER_VOTE_URL}/api/songs", headers={"x-room-code": COVER_VOTE_CODE}, timeout=10)
         r.raise_for_status()
         data = r.json()
     except Exception:
         log.exception("cover vote lookup failed")
-        return None
-    songs = [s for s in data.get("songs") or [] if isinstance(s, dict) and s.get("id")]
+        return []
+    # Songs marked as learned have left the rotation
+    songs = [s for s in data.get("songs") or [] if isinstance(s, dict) and s.get("id") and not s.get("done")]
     tally = {s["id"]: [0, 0] for s in songs}
     for key, value in (data.get("votes") or {}).items():
         sid = key.split("|", 1)[0]
@@ -1242,13 +1249,31 @@ def top_cover_song():
             # A neutral (0) vote counts as voted but does not move the score
             tally[sid][0] += (v > 0) - (v < 0)
             tally[sid][1] += v > 0
-    if not songs:
-        return None
-    best = max(songs, key=lambda s: (tally[s["id"]][0], tally[s["id"]][1], -(s.get("createdAt") or 0)))
-    if tally[best["id"]][0] <= 0:
-        return None
-    return {"title": best.get("title", ""), "artist": best.get("artist", ""), "key": best.get("key") or "",
-            "score": tally[best["id"]][0]}
+    songs.sort(key=lambda s: (-tally[s["id"]][0], -tally[s["id"]][1], s.get("createdAt") or 0))
+    return [{"id": s["id"], "title": s.get("title", ""), "artist": s.get("artist", ""),
+             "key": s.get("key") or "", "score": tally[s["id"]][0]} for s in songs]
+
+
+def top_cover_song():
+    ranking = cover_ranking()
+    return ranking[0] if ranking and ranking[0]["score"] > 0 else None
+
+
+def song_label(song, artist=True):
+    name = " – ".join(x for x in (song["title"], song["artist"] if artist else "") if x)
+    return name + (f" ({song['key']})" if song.get("key") else "")
+
+
+def cover_update(payload):
+    """Marks a song as played or learned in the cover vote app."""
+    try:
+        r = requests.post(f"{COVER_VOTE_URL}/api/played", json=payload, timeout=10,
+                          headers={"x-room-code": COVER_VOTE_CODE, "x-bot-secret": COVER_VOTE_SECRET})
+        r.raise_for_status()
+        return True
+    except Exception:
+        log.exception("cover vote update failed")
+        return False
 
 
 REHEARSAL_TODAY_UNTIL = dt.time(17, 30)
@@ -1325,13 +1350,17 @@ def finish_rehearsal(chat_id, poll, reply_to=None):
               "rehearsal_status": {**(field(state_ref().get(), "rehearsal_status") or {}), day.isoformat(): status}}
     song = top_cover_song()
     if song:
-        name = " – ".join(x for x in (song["title"], song["artist"]) if x)
-        if song.get("key"):
-            name += f" ({song['key']})"
+        name = song_label(song)
         lines.append(f"🎵 Çalınacak: <b>{html.escape(name)}</b>")
         update["rehearsal_songs"] = {**(field(state_ref().get(), "rehearsal_songs") or {}), day.isoformat(): name}
     state_ref().set(update, merge=True)
     sent = send(chat_id, "\n".join(lines))
+    if isinstance(sent, dict):
+        # Kept so the message can be updated once the admin says what was played
+        results = dict(field(state_ref().get(), "rehearsal_results") or {})
+        results[day.isoformat()] = {"message_id": sent["message_id"], "text": "\n".join(lines),
+                                    "song_id": song["id"] if song else None}
+        state_ref().set({"rehearsal_results": results}, merge=True)
     send_celebration(chat_id, "music_maybe" if status == "olabilir" else "music_yes")
     # The result stays pinned until the rehearsal evening
     unpin_rehearsal_result(chat_id)
@@ -1682,6 +1711,8 @@ def cron_reminder():
     stats = load_stats()
     missing = [m for m in members if t.isoformat() not in stats.get(m["id"], empty_stats())["days"]]
     unpin_rehearsal_result(chat_id, until=t)
+    if t.isoformat() in (field(state_ref().get(), "rehearsals") or []):
+        start_rehearsal_review(t)
     if t.weekday() == 0:
         weekly_rehearsal_poll(chat_id)
     poll_lines = upcoming_rehearsal_lines(t) + rehearsal_reminder(chat_id, members)
@@ -2250,6 +2281,129 @@ if (ch) ch.addEventListener("click", function (e) {
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "8080")), debug=True)
+
+
+# ---------- what was played at a rehearsal (admin, private chat) ----------
+
+REVIEW_OPTIONS = 6
+
+
+def start_rehearsal_review(day):
+    st = state_ref().get()
+    admin = field(st, "admin_id")
+    review = field(st, "rehearsal_review") or {}
+    if not admin or review.get("day") == day.isoformat():
+        return
+    planned = ((field(st, "rehearsal_results") or {}).get(day.isoformat()) or {}).get("song_id")
+    ranking = cover_ranking()
+    ranking.sort(key=lambda s: s["id"] != planned)
+    options = [{"id": s["id"], "name": song_label(s, artist=False), "full": song_label(s)}
+               for s in ranking[:REVIEW_OPTIONS]]
+    review = {"day": day.isoformat(), "options": options, "picked": [], "learned": [], "stage": "pick"}
+    sent = tg("sendMessage", chat_id=admin, text=review_text(review), parse_mode="HTML",
+              reply_markup=review_keyboard(review))
+    if isinstance(sent, dict):
+        review["message_id"] = sent["message_id"]
+    state_ref().set({"rehearsal_review": review}, merge=True)
+
+
+def review_text(review):
+    day = tr_date(dt.date.fromisoformat(review["day"]))
+    if review["stage"] == "pick":
+        return f"🎸 <b>{day}</b>: listeden ne çaldınız? Seçip Tamam'a bas."
+    return "Hangileri tamamen oturdu? Seçtiklerin repertuvara geçer, bot bir daha seçmez."
+
+
+def review_keyboard(review):
+    opts = review["options"]
+    if review["stage"] == "pick":
+        rows = [[{"text": ("✅ " if i in review["picked"] else "▫️ ") + o["name"], "callback_data": f"rv:p:{i}"}]
+                for i, o in enumerate(opts)]
+        rows += [[{"text": "Tamam", "callback_data": "rv:ok"}, {"text": "Listeden çalmadık", "callback_data": "rv:none"}],
+                 [{"text": "Prova olmadı", "callback_data": "rv:cancel"}]]
+    else:
+        rows = [[{"text": ("✅ " if i in review["learned"] else "▫️ ") + opts[i]["name"], "callback_data": f"rv:d:{i}"}]
+                for i in review["picked"]]
+        rows += [[{"text": "Tamam", "callback_data": "rv:fin"}]]
+    return {"inline_keyboard": rows}
+
+
+def handle_callback(cq):
+    tg("answerCallbackQuery", callback_query_id=cq["id"])
+    data = cq.get("data") or ""
+    st = state_ref().get()
+    review = field(st, "rehearsal_review")
+    msg = cq.get("message") or {}
+    if not data.startswith("rv:") or not review or str((cq.get("from") or {}).get("id")) != str(field(st, "admin_id")) \
+            or msg.get("message_id") != review.get("message_id"):
+        return
+    chat, mid = msg["chat"]["id"], msg["message_id"]
+    parts = data.split(":")
+
+    def show(text=None, keyboard=True):
+        params = {"chat_id": chat, "message_id": mid, "text": text or review_text(review), "parse_mode": "HTML"}
+        if keyboard:
+            params["reply_markup"] = review_keyboard(review)
+        tg("editMessageText", **params)
+
+    if parts[1] in ("p", "d") and len(parts) == 3 and parts[2].isdigit():
+        i = int(parts[2])
+        key = "picked" if parts[1] == "p" else "learned"
+        if i < len(review["options"]):
+            review[key] = sorted(set(review[key]) ^ {i})
+            state_ref().update({"rehearsal_review": review})
+            show()
+    elif parts[1] == "ok" and review["stage"] == "pick":
+        if not review["picked"]:
+            parts[1] = "none"
+        else:
+            record_played(review)
+            review["stage"] = "learned"
+            state_ref().update({"rehearsal_review": review})
+            show()
+            return
+    elif parts[1] == "fin" and review["stage"] == "learned":
+        for i in review["learned"]:
+            cover_update({"id": review["options"][i]["id"], "done": True})
+        played = ", ".join(review["options"][i]["name"] for i in review["picked"])
+        learned = ", ".join(review["options"][i]["name"] for i in review["learned"])
+        text = f"✅ Kaydettim. Çalınan: {html.escape(played)}"
+        if learned:
+            text += f"\nRepertuvara geçti: {html.escape(learned)}"
+        review["stage"] = "closed"
+        state_ref().update({"rehearsal_review": review})
+        show(text, keyboard=False)
+        return
+    if parts[1] == "none" and review["stage"] == "pick":
+        songs = dict(field(st, "rehearsal_songs") or {})
+        songs.pop(review["day"], None)
+        review["stage"] = "closed"
+        state_ref().update({"rehearsal_review": review, "rehearsal_songs": songs})
+        show("Tamam, listeden bir şey çalınmadı. Sıradaki şarkı yerinde kalıyor.", keyboard=False)
+    elif parts[1] == "cancel" and review["stage"] == "pick":
+        days = [d for d in field(st, "rehearsals") or [] if d != review["day"]]
+        songs = dict(field(st, "rehearsal_songs") or {})
+        songs.pop(review["day"], None)
+        review["stage"] = "closed"
+        state_ref().update({"rehearsal_review": review, "rehearsals": days, "rehearsal_songs": songs})
+        show("Tamam, prova günü takvimden kaldırıldı.", keyboard=False)
+
+
+def record_played(review):
+    """Shows the played songs in the group's result message, the calendar and the cover vote app."""
+    st = state_ref().get()
+    picked = [review["options"][i] for i in review["picked"]]
+    for o in picked:
+        cover_update({"id": o["id"], "date": review["day"]})
+    songs = dict(field(st, "rehearsal_songs") or {})
+    songs[review["day"]] = ", ".join(o["full"] for o in picked)
+    state_ref().update({"rehearsal_songs": songs})
+    result = (field(st, "rehearsal_results") or {}).get(review["day"])
+    chat_id = get_chat_id()
+    if result and chat_id:
+        played = ", ".join(f"<b>{html.escape(o['full'])}</b>" for o in picked)
+        tg("editMessageText", chat_id=chat_id, message_id=result["message_id"], parse_mode="HTML",
+           text=f"{result['text']}\n✅ Çalındı: {played}")
 
 
 def remove_rehearsal(chat_id, args):

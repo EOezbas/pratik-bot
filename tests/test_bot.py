@@ -1436,3 +1436,58 @@ def test_exercises_not_listed_as_songs(env, plain_wav):
     env.command(EMRE, "/sarkilarim")
     out = env.tg.sent()[-1]
     assert "Hurt — intro" in out and "jam" not in out and "scale" not in out and "Bitirdiklerin" not in out
+
+
+def test_rehearsal_review_flow(env, monkeypatch):
+    from unittest import mock as _m
+    m = env.main
+    now = [dt.datetime(2026, 10, 20, 12, 0, tzinfo=m.TZ)]
+    monkeypatch.setattr(m, "now_local", lambda: now[0])
+    monkeypatch.setattr(m, "today", lambda: now[0].date())
+    make_admin(env)
+    join_all(env, EMRE, CAN, DENIZ)
+    data = {"songs": [{"id": "a", "title": "Creep", "artist": "Radiohead", "createdAt": 1},
+                      {"id": "b", "title": "Hurt", "artist": "Johnny Cash", "createdAt": 2, "key": "-2"},
+                      {"id": "c", "title": "Old", "artist": "X", "createdAt": 0, "done": True}],
+            "votes": {"a|u1": 1, "b|u1": 1, "b|u2": 1, "c|u1": 1, "c|u2": 1, "c|u3": 1}}
+    posted = []
+    monkeypatch.setattr(m.requests, "get", lambda url, **kw: _m.Mock(json=lambda: data, raise_for_status=lambda: None))
+    real_post = m.requests.post
+
+    def post(url, json=None, **kw):
+        if "/api/played" in url:
+            posted.append(json)
+            return _m.Mock(raise_for_status=lambda: None)
+        return real_post(url, json=json, **kw)
+    monkeypatch.setattr(m.requests, "post", post)
+    env.tg.results = {"sendPoll": {"message_id": 500, "poll": {"id": "P1"}}, "sendMessage": {"message_id": 777}}
+    env.command(EMRE, "/prova")
+    for u in (EMRE, CAN, DENIZ):
+        answer(env, u, [0])
+    assert any("Çalınacak: <b>Hurt – Johnny Cash (-2)</b>" in t for t in env.tg.sent())
+    st = lambda: env.fs.store["config"]["state"]
+    assert st()["rehearsal_results"]["2026-10-24"]["song_id"] == "b"
+
+    env.tg.results = {"sendMessage": {"message_id": 900}}
+    now[0] = dt.datetime(2026, 10, 24, 21, 0, tzinfo=m.TZ)
+    env.client.post("/cron/reminder", headers={"X-Cron-Secret": "cron"})
+    ask = [p for c, p in env.tg.calls if c == "sendMessage" and "ne çaldınız" in p["text"]]
+    assert ask and str(ask[0]["chat_id"]) == str(EMRE["id"])
+    names = [r[0]["text"] for r in ask[0]["reply_markup"]["inline_keyboard"][:2]]
+    assert names == ["▫️ Hurt (-2)", "▫️ Creep"]
+
+    def click(data, user=EMRE):
+        m.handle_update({"callback_query": {"id": "q", "from": user, "data": data,
+                                            "message": {"message_id": 900, "chat": {"id": EMRE["id"]}}}})
+    click("rv:p:1", CAN)
+    assert st()["rehearsal_review"]["picked"] == []
+    click("rv:p:1")
+    click("rv:ok")
+    assert posted == [{"id": "a", "date": "2026-10-24"}]
+    assert st()["rehearsal_songs"]["2026-10-24"] == "Creep – Radiohead"
+    edit = [p for c, p in env.tg.calls if c == "editMessageText" and p["message_id"] == 777]
+    assert edit and edit[-1]["text"].endswith("✅ Çalındı: <b>Creep – Radiohead</b>")
+    click("rv:d:1")
+    click("rv:fin")
+    assert posted[-1] == {"id": "a", "done": True}
+    assert st()["rehearsal_review"]["stage"] == "closed"

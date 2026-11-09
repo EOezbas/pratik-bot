@@ -348,7 +348,7 @@ def test_milestones_31_and_69(env):
 def test_milestone_list(env):
     labels = [b["text"] for row in env.main.milestone_keyboard(env.main.load_celebrations())["keyboard"] for b in row]
     assert labels == ["7 gün", "14 gün", "21 gün", "30 gün", "60 gün", "365 gün", "İlk kayıt",
-                      "5. kayıt", "31. kayıt", "50. kayıt", "69. kayıt", "100. kayıt", "Katılma (/katil)", "Ayrılma (/ayril)", "Müzik var", "Müzik olabilir", "Müzik yok", "İptal"]
+                      "5. kayıt", "31. kayıt", "50. kayıt", "69. kayıt", "100. kayıt", "Geri dönüş", "Katılma (/katil)", "Ayrılma (/ayril)", "Müzik var", "Müzik olabilir", "Müzik yok", "İptal"]
 
 
 def test_first_and_fifth_recording(env, plain_wav):
@@ -1491,3 +1491,26 @@ def test_rehearsal_review_flow(env, monkeypatch):
     click("rv:fin")
     assert posted[-1] == {"id": "a", "done": True}
     assert st()["rehearsal_review"]["stage"] == "closed"
+
+
+def test_comeback_after_broken_streak(env, plain_wav):
+    join_all(env, EMRE)
+    for back in (6, 5):
+        env.add_recording(EMRE["id"], back)
+    env.set_first_day(EMRE["id"], 6)
+    env.voice(EMRE, plain_wav)
+    out = env.tg.sent()
+    assert any("geri döndü! Toplam 3. gün" in t for t in out)
+    env.voice(EMRE, plain_wav)
+    assert sum("geri döndü" in t for t in env.tg.sent()) == 1
+
+
+def test_seri_and_reminder_show_total_days(env):
+    join_all(env, EMRE)
+    for back in (9, 8, 7):
+        env.add_recording(EMRE["id"], back)
+    env.set_first_day(EMRE["id"], 9)
+    env.command(EMRE, "/seri")
+    assert "seri 0 · toplam 3 gün" in env.tg.sent()[-1]
+    env.client.post("/cron/reminder", headers={"X-Cron-Secret": "cron"})
+    assert "– toplam 3 gün" in env.tg.sent()[-1]

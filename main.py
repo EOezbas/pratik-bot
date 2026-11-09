@@ -1029,6 +1029,14 @@ def check_milestones(chat_id, user):
             lines.append(f"🎉 {mention(uid, member.get('name', ''))} {nth} kaydını attı!")
             if cel_key is None:
                 cel_key, emoji = f"count{st['count']}", "🎊"
+    # First take after a broken streak is welcomed, so starting over feels like a win
+    t = today()
+    before = [status for _, status in hist[:-1] if status != "joker"]
+    if cur == 1 and before and before[-1] == "missed" and f"comeback:{t.isoformat()}" not in reached:
+        new_keys.append(f"comeback:{t.isoformat()}")
+        lines.append(f"🔁 {mention(uid, member.get('name', ''))} geri döndü! Toplam {len(st['days'])}. gün.")
+        if cel_key is None:
+            cel_key, emoji = "comeback", "🔁"
     if new_keys:
         ref.set({"milestones": sorted(reached | set(new_keys))}, merge=True)
         send(chat_id, "\n".join(lines))
@@ -1094,11 +1102,12 @@ def handle_command(cmd, msg, user):
             hist = history(m, stats.get(m["id"], empty_stats()), t)
             cur, _ = chain_stats(hist)
             marks = "".join(MARK[s] for _, s in hist[-HISTORY_DAYS:])
-            rows.append((cur, m["name"], marks or "–"))
+            total = len(stats.get(m["id"], empty_stats())["days"])
+            rows.append((cur, m["name"], marks or "–", total))
         rows.sort(key=lambda r: (-r[0], r[1]))
         lines = []
-        for _, name, marks in rows:
-            lines += [f"<b>{html.escape(name)}</b>", marks, ""]
+        for cur, name, marks, total in rows:
+            lines += [f"<b>{html.escape(name)}</b> · seri {cur} · toplam {total} gün", marks, ""]
         send(chat_id, "\n".join(lines).strip() if rows else "Henüz kayıt yok.", mid)
     elif cmd == "/detay":
         members = [m for m in load_members() if m.get("active")]
@@ -1503,7 +1512,7 @@ def delete_recording(msg, user, keep_message=False):
 def milestone_labels(cel):
     return [(f"streak{n}", f"{n} gün") for n in sorted(cel["streaks"])] + \
            [(f"count{n}", "İlk kayıt" if n == 1 else f"{n}. kayıt") for n in sorted(cel["counts"])] + \
-           [("join", "Katılma (/katil)"), ("leave", "Ayrılma (/ayril)"),
+           [("comeback", "Geri dönüş"), ("join", "Katılma (/katil)"), ("leave", "Ayrılma (/ayril)"),
             ("music_yes", "Müzik var"), ("music_maybe", "Müzik olabilir"), ("music_no", "Müzik yok")]
 
 
@@ -1723,7 +1732,10 @@ def cron_reminder():
     for m in missing:
         hist = history(m, stats.get(m["id"], empty_stats()), t)
         cur, _ = chain_stats(hist)
-        if joker_used_this_week(hist, t):
+        total = len(stats.get(m["id"], empty_stats())["days"])
+        if not cur:
+            tail = f" – toplam {total} gün" if total else ""
+        elif joker_used_this_week(hist, t):
             tail = f" – {cur} günlük seri bozulmasın, bu haftanın jokeri kullanıldı" if cur else ""
         else:
             tail = f" – {cur} günlük seri · 🃏 jokerin var" if cur else ""

@@ -8,6 +8,7 @@ Arkadaş grubunun günlük müzik pratiği alışkanlığı için bir Telegram b
 - **Müzik kontrolü:** İçinde müzik (çalma ya da şarkı söyleme) olmayan, sadece konuşma olan sesli mesajlar ve videolar pratik sayılmaz; bot bunlara dokunmaz. Bunu YAMNet adlı küçük bir ses sınıflandırma modeli yapar; kayıtta birkaç saniye müzik duyması yeterli, emin olamazsa kaydı pratik sayar. Bot bir pratiği yanlışlıkla atlarsa kayda yanıt verip `/kaydet` yazmak yeterli.
 - **Metronom algılama:** Kayıtta duyulabilir bir metronom varsa bot 🔥 koyar ve BPM'i kaydeder. Mekanik metronomlar gibi biraz kayan tıklar da kabul edilir; bunun bedeli, çok düzenli çalan (zamanlama sapması ~10 ms altı) birinin metronomsuz kaydının da 🔥 alabilmesi. Metronomsuz kayıtlarda tempo çalınan notalardan tahmin edilir ve takvimde gri "♩ ~84 bpm" olarak gösterilir; tempo düzensizse (rubato, serbest çalım) gösterilmez. Notaların hızı vuruşun iki katıysa bot önce vurgulara bakar, karar veremezse 125 bpm üstünde yavaş olan vuruşu seçer; bu yüzden gerçekten çok hızlı (125+) çalınan parçalar yarı tempo görünebilir. Bu bilgi takibi etkilemez.
 - **Seri ve joker:** Haftada (Pazartesi–Pazar) atlanan ilk gün 🃏 joker sayılır ve seriyi bozmaz.
+- **Seri kurtarma:** Seri bozulursa, kaçırılan gün sayısının 2 fazlası kadar gün üst üste kaydedilince eski seri geri gelir; kaçırılan günler 🩹 olur ve seriye eklenmez. Ayda bir kez.
 - **Gün sınırı:** Gün gece 00:00'te kapanır; bundan sonra atılan kayıtlar ertesi güne sayılır.
 - **Hatırlatma:** Her gün 21:00'de o gün kayıt atmayanlar grupta etiketlenir.
 - **Haftalık özet:** Pazar 21:30'da haftanın özeti ve "metronom ustası" gruba gönderilir.
@@ -22,7 +23,7 @@ Arkadaş grubunun günlük müzik pratiği alışkanlığı için bir Telegram b
 | Komut | Açıklama |
 |---|---|
 | `/bugun` | Bugün kim kaydetti |
-| `/seri` | Son 20 gün: 🔥 metronomlu, ❤ kaydetti, 🃏 joker, 💔 atladı |
+| `/seri` | Son 20 gün ve toplam gün: 🔥 metronomlu, ❤ kaydetti, 🃏 joker, 🩹 kurtarıldı, 💔 atladı |
 | `/detay` | En uzun seri, joker durumu, bu ayki günler, metronomlu günler, toplam kayıt süresi |
 | `/takvim` | Takvim sayfasının linki |
 | `/katil` | Kayıt atmadan gruba katıl |

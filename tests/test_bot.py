@@ -348,7 +348,7 @@ def test_milestones_31_and_69(env):
 def test_milestone_list(env):
     labels = [b["text"] for row in env.main.milestone_keyboard(env.main.load_celebrations())["keyboard"] for b in row]
     assert labels == ["7 gün", "14 gün", "21 gün", "30 gün", "60 gün", "365 gün", "İlk kayıt",
-                      "5. kayıt", "31. kayıt", "50. kayıt", "69. kayıt", "100. kayıt", "Geri dönüş", "Katılma (/katil)", "Ayrılma (/ayril)", "Müzik var", "Müzik olabilir", "Müzik yok", "İptal"]
+                      "5. kayıt", "31. kayıt", "50. kayıt", "69. kayıt", "100. kayıt", "Geri dönüş", "Seri kurtarma", "Katılma (/katil)", "Ayrılma (/ayril)", "Müzik var", "Müzik olabilir", "Müzik yok", "İptal"]
 
 
 def test_first_and_fifth_recording(env, plain_wav):
@@ -1514,3 +1514,42 @@ def test_seri_and_reminder_show_total_days(env):
     assert "seri 0 · toplam 3 gün" in env.tg.sent()[-1]
     env.client.post("/cron/reminder", headers={"X-Cron-Secret": "cron"})
     assert "– toplam 3 gün" in env.tg.sent()[-1]
+
+
+def test_streak_repair(env, monkeypatch):
+    m = env.main
+    day = [dt.date(2026, 11, 14)]
+    monkeypatch.setattr(m, "today", lambda: day[0])
+    join_all(env, EMRE)
+    # Mon-Wed recorded, Thu joker, Fri missed
+    for back in (5, 4, 3, 0):
+        env.add_recording(EMRE["id"], back, duration=60)
+    env.set_first_day(EMRE["id"], 5)
+    m.check_milestones(-1001, EMRE)
+    assert any("geri döndü! Toplam 4. gün. 3 gün üst üste kaydedersen eski 3 günlük serin geri gelir." in t
+               for t in env.tg.sent())
+    day[0] = dt.date(2026, 11, 16)
+    store = env.fs.store["recordings"]
+    for back in (1, 0):
+        env.add_recording(EMRE["id"], back)
+    store[f"r_{EMRE['id']}_keep"] = dict(store[f"r_{EMRE['id']}_0"], day="2026-11-14")
+    m.check_milestones(-1001, EMRE)
+    assert any("serisini kurtardı: 6 gün!" in t for t in env.tg.sent())
+    hist = m.history(m.load_members()[0], m.load_stats()[str(EMRE["id"])], day[0])
+    assert [s for d, s in hist if d.isoformat() in ("2026-11-12", "2026-11-13")] == ["joker", "repaired"]
+
+
+def test_repair_needs_missed_plus_two_and_once_a_month():
+    import main as m
+    D = dt.date
+    def run(statuses, start=D(2026, 11, 12)):
+        out = [(start + dt.timedelta(days=i), s) for i, s in enumerate(statuses)]
+        reps = []
+        m.apply_repairs(out, reps)
+        return [s for _, s in out], reps
+    s, _ = run(["done", "missed", "missed", "done", "done", "done"])
+    assert s.count("repaired") == 0
+    s, _ = run(["done", "missed", "missed", "done", "done", "done", "done"])
+    assert s.count("repaired") == 2
+    s, reps = run(["done", "missed", "done", "done", "done", "missed", "done", "done", "done"])
+    assert s.count("repaired") == 1 and len(reps) == 1

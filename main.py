@@ -327,11 +327,11 @@ def empty_stats():
     return {"days": set(), "metro": set(), "sec": 0, "count": 0}
 
 
-def history(member, st, t):
+def history(member, st, t, repairs=None):
     """Daily status from the member's first day to the last finished day.
 
-    Status per day: metro, done, joker (first miss of its Mon-Sun week) or missed.
-    Today counts only once it has a recording.
+    Status per day: metro, done, joker (first miss of its Mon-Sun week), repaired or missed.
+    Today counts only once it has a recording. Completed repairs are appended to `repairs`.
     """
     first_iso = member.get("first_day") or (min(st["days"]) if st["days"] else t.isoformat())
     first = dt.date.fromisoformat(first_iso)
@@ -353,7 +353,73 @@ def history(member, st, t):
             status = "missed"
         out.append((d, status))
         d += dt.timedelta(days=1)
+    apply_repairs(out, repairs if repairs is not None else [])
     return out
+
+
+REPAIR_EXTRA = 2  # recorded days needed on top of the missed ones
+REPAIR_SINCE = dt.date(2026, 11, 10)  # earlier gaps keep their old outcome
+
+
+def repair_need(missed):
+    return missed + REPAIR_EXTRA
+
+
+def apply_repairs(out, repairs):
+    """A broken chain comes back once the member records missed+2 days in a row after the gap.
+
+    Missed days become "repaired": they bridge the chain but add nothing. One repair per month.
+    """
+    months, i, n = set(), 0, len(out)
+    while i < n:
+        if out[i][1] != "missed":
+            i += 1
+            continue
+        j = i
+        while j < n and out[j][1] in ("missed", "joker"):
+            j += 1
+        missed = [k for k in range(i, j) if out[k][1] == "missed"]
+        p = i - 1
+        while p >= 0 and out[p][1] == "joker":
+            p -= 1
+        need, got, k, done_on = repair_need(len(missed)), 0, j, None
+        while k < n and out[k][1] != "missed":
+            if out[k][1] in ("done", "metro"):
+                got += 1
+                if got == need:
+                    done_on = out[k][0]
+                    break
+            k += 1
+        month = (out[i][0].year, out[i][0].month)
+        if p >= 0 and out[p][1] in ("done", "metro", "repaired") and done_on and done_on >= REPAIR_SINCE \
+                and month not in months:
+            for m in missed:
+                out[m] = (out[m][0], "repaired")
+            months.add(month)
+            repairs.append({"gap_start": out[i][0], "completed": done_on, "missed": len(missed)})
+        i = j
+
+
+def repair_offer(hist):
+    """For a chain broken just before today: (missed days, old streak) if it can still be repaired."""
+    if len(hist) < 2 or hist[-1][1] not in ("done", "metro"):
+        return None
+    k = len(hist) - 2
+    while k >= 0 and hist[k][1] == "joker":
+        k -= 1
+    if k < 0 or hist[k][1] != "missed":
+        return None
+    end = k
+    while k >= 0 and hist[k][1] in ("missed", "joker"):
+        k -= 1
+    missed = sum(1 for _, s in hist[k + 1:end + 1] if s == "missed")
+    if k < 0 or hist[k][1] not in ("done", "metro", "repaired"):
+        return None
+    start = hist[k + 1][0]
+    if any(s == "repaired" and (d.year, d.month) == (start.year, start.month) for d, s in hist):
+        return None
+    old, _ = chain_stats(hist[:k + 1])
+    return (missed, old) if old else None
 
 
 def chain_stats(hist):
@@ -505,7 +571,7 @@ IDEAS = [
     "Grupta başkasının dün attığı parçayı sen de dene.",
 ]
 
-MARK = {"metro": "🔥", "done": "❤", "joker": "🃏", "missed": "💔"}
+MARK = {"metro": "🔥", "done": "❤", "joker": "🃏", "repaired": "🩹", "missed": "💔"}
 
 
 def fmt_total(sec):
@@ -1007,7 +1073,8 @@ def check_milestones(chat_id, user):
         return
     member = snap.to_dict()
     st = load_stats().get(uid, empty_stats())
-    hist = history(member, st, today())
+    repairs = []
+    hist = history(member, st, today(), repairs)
     cur, _ = chain_stats(hist)
     reached = set(member.get("milestones") or [])
     new_keys, lines, emoji, cel_key = [], [], "🎉", None
@@ -1032,11 +1099,23 @@ def check_milestones(chat_id, user):
     # First take after a broken streak is welcomed, so starting over feels like a win
     t = today()
     before = [status for _, status in hist[:-1] if status != "joker"]
+    name = mention(uid, member.get('name', ''))
     if cur == 1 and before and before[-1] == "missed" and f"comeback:{t.isoformat()}" not in reached:
         new_keys.append(f"comeback:{t.isoformat()}")
-        lines.append(f"🔁 {mention(uid, member.get('name', ''))} geri döndü! Toplam {len(st['days'])}. gün.")
+        line = f"🔁 {name} geri döndü! Toplam {len(st['days'])}. gün."
+        offer = repair_offer(hist)
+        if offer:
+            line += f" {repair_need(offer[0])} gün üst üste kaydedersen eski {offer[1]} günlük serin geri gelir."
+        lines.append(line)
         if cel_key is None:
             cel_key, emoji = "comeback", "🔁"
+    for r in repairs:
+        key = f"repair:{r['gap_start'].isoformat()}"
+        if r["completed"] == t and key not in reached:
+            new_keys.append(key)
+            lines.append(f"🩹 {name} serisini kurtardı: {cur} gün!")
+            if cel_key is None or cel_key == "comeback":
+                cel_key, emoji = "repair", "🩹"
     if new_keys:
         ref.set({"milestones": sorted(reached | set(new_keys))}, merge=True)
         send(chat_id, "\n".join(lines))
@@ -1053,10 +1132,12 @@ def handle_command(cmd, msg, user):
              "Her gün pratikten kısa bir sesli mesaj, video ya da ses dosyası at, ben kaydedip ❤ koyarım.\n"
              "Metronomla çalışırsan (hoparlörden, kayıtta duyulacak şekilde) 🔥 alırsın.\n"
              "Haftada 1 gün atlama hakkın var (🃏 joker), seri bozulmaz.\n"
+             "Seri bozulursa, kaçırdığın gün sayısının 2 fazlası kadar gün üst üste kaydedip "
+             "eski serini kurtarabilirsin (🩹, ayda bir kez).\n"
              "Not eklemek için mesaja açıklama yaz ya da kendi kaydına yanıt ver.\n"
              "İçinde müzik olmayan sesli mesajlar (sadece konuşma) pratik sayılmaz.\n\n"
              "/bugun – bugün kim kaydetti\n"
-             "/seri – son 20 gün (🔥 metronomlu, ❤ kaydetti, 🃏 joker, 💔 atladı)\n"
+             "/seri – son 20 gün (🔥 metronomlu, ❤ kaydetti, 🃏 joker, 🩹 kurtarıldı, 💔 atladı)\n"
              "/detay – herkesin istatistikleri\n"
              "/takvim – tüm kayıtların takvimi\n"
              "/katil – kayıt atmadan gruba katıl\n"
@@ -1512,7 +1593,7 @@ def delete_recording(msg, user, keep_message=False):
 def milestone_labels(cel):
     return [(f"streak{n}", f"{n} gün") for n in sorted(cel["streaks"])] + \
            [(f"count{n}", "İlk kayıt" if n == 1 else f"{n}. kayıt") for n in sorted(cel["counts"])] + \
-           [("comeback", "Geri dönüş"), ("join", "Katılma (/katil)"), ("leave", "Ayrılma (/ayril)"),
+           [("comeback", "Geri dönüş"), ("repair", "Seri kurtarma"), ("join", "Katılma (/katil)"), ("leave", "Ayrılma (/ayril)"),
             ("music_yes", "Müzik var"), ("music_maybe", "Müzik olabilir"), ("music_no", "Müzik yok")]
 
 
@@ -1917,6 +1998,7 @@ def calendar_page():
     all_stats = load_stats()
     hists = {m["id"]: history(m, all_stats.get(m["id"], empty_stats()), t) for m in shown}
     jokers = {uid: {d.isoformat() for d, s in h if s == "joker"} for uid, h in hists.items()}
+    repaired = {uid: {d.isoformat() for d, s in h if s == "repaired"} for uid, h in hists.items()}
 
     def states_for(day):
         out = []
@@ -1927,6 +2009,8 @@ def calendar_page():
                 st = "metro"
             elif st == "missed" and day.isoformat() in jokers[m["id"]]:
                 st = "joker"
+            elif st == "missed" and day.isoformat() in repaired[m["id"]]:
+                st = "repaired"
             if st:
                 out.append({"name": m["name"], "state": st})
         return out
@@ -1973,6 +2057,7 @@ def calendar_page():
                 "iso": d.isoformat(), "label": tr_date(d), "is_today": d == t, "recs": items,
                 "missed": [s["name"] for s in sts if s["state"] == "missed"],
                 "jokers": [s["name"] for s in sts if s["state"] == "joker"],
+                "repaired": [s["name"] for s in sts if s["state"] == "repaired"],
                 "pending": [s["name"] for s in sts if s["state"] == "pending"],
             })
         d -= dt.timedelta(days=1)
@@ -1986,7 +2071,8 @@ def calendar_page():
         missed = 0
         d = first
         while d <= min(last, t - dt.timedelta(days=1)):
-            if member_state(m, d, d.isoformat() in s, t) == "missed" and d.isoformat() not in jokers[m["id"]]:
+            if member_state(m, d, d.isoformat() in s, t) == "missed" and d.isoformat() not in jokers[m["id"]] \
+                    and d.isoformat() not in repaired[m["id"]]:
                 missed += 1
             d += dt.timedelta(days=1)
         metro_month = sum(1 for x in all_metro.get(m["id"], set()) if first.isoformat() <= x <= last.isoformat())
@@ -2119,6 +2205,7 @@ header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:fle
 .dot.missed{background:transparent;box-shadow:inset 0 0 0 2px var(--miss)}
 .dot.joker{background:transparent;box-shadow:inset 0 0 0 2px var(--accent)}
 .note.joker{background:var(--bg);border:1px solid var(--accent)}
+.dot.repaired{background:transparent;box-shadow:inset 0 0 0 2px var(--accent);border-radius:2px}
 .dot.pending{background:var(--empty);box-shadow:inset 0 0 0 1.5px var(--muted)}
 .legend{display:flex;flex-wrap:wrap;gap:14px;font-size:13px;color:var(--muted)}
 .legend span{display:inline-flex;gap:6px;align-items:center}
@@ -2188,7 +2275,7 @@ table.sum tr.inactive td{color:var(--muted)}
       {% for week in weeks %}{% for c in week %}
         <a class="cell{% if not c.in_month %} out{% endif %}{% if c.is_today %} today{% endif %}{% if not c.has_list %} nolink{% endif %}{% if c.total and c.done == c.total %} all{% endif %}"
            {% if c.has_list %}href="#d-{{ c.iso }}"{% endif %}
-           title="{% for s in c.states %}{{ s.name }}: {{ {'done':'kaydetti','metro':'metronomla kaydetti','joker':'joker kullandı','missed':'kaydetmedi','pending':'bekleniyor'}[s.state] }}{% if not loop.last %}&#10;{% endif %}{% endfor %}">
+           title="{% for s in c.states %}{{ s.name }}: {{ {'done':'kaydetti','metro':'metronomla kaydetti','joker':'joker kullandı','repaired':'kurtarıldı','missed':'kaydetmedi','pending':'bekleniyor'}[s.state] }}{% if not loop.last %}&#10;{% endif %}{% endfor %}">
           <span class="top"><span class="num">{{ c.date.day }}{% if c.rehearsal %} <span title="Prova{% if c.rehearsal_song %}: {{ c.rehearsal_song }}{% endif %}">🎸</span>{% endif %}</span>{% if c.total %}<span class="cnt">{{ c.done }}/{{ c.total }}</span>{% endif %}</span>
           {% if c.rehearsal_title %}<span class="rsong">{{ c.rehearsal_title }}</span>{% endif %}
           <span class="dots">{% for s in c.states %}<i class="dot {{ s.state }}"></i>{% endfor %}</span>
@@ -2199,6 +2286,7 @@ table.sum tr.inactive td{color:var(--muted)}
       <span><i class="dot done"></i>kaydetti</span>
       <span><i class="dot metro"></i>metronomla</span>
       <span><i class="dot joker"></i>joker</span>
+      <span><i class="dot repaired"></i>kurtarıldı</span>
       <span><i class="dot missed"></i>kaydetmedi</span>
       <span><i class="dot pending"></i>bugün bekleniyor</span>
       <span>Bir güne dokun, o günün kayıtları aşağıda görünür.</span>
@@ -2242,6 +2330,7 @@ table.sum tr.inactive td{color:var(--muted)}
       </article>
       {% endfor %}
       {% if d.jokers %}<div class="note joker">🃏 Joker: {{ d.jokers|join(', ') }}</div>{% endif %}
+      {% if d.repaired %}<div class="note joker">🩹 Kurtarıldı: {{ d.repaired|join(', ') }}</div>{% endif %}
       {% if d.missed %}<div class="note miss">Kaydetmedi: {{ d.missed|join(', ') }}</div>{% endif %}
       {% if d.pending %}<div class="note pend">Bekleniyor: {{ d.pending|join(', ') }}</div>{% endif %}
     </div>

@@ -358,68 +358,89 @@ def history(member, st, t, repairs=None):
 
 
 REPAIR_EXTRA = 2  # recorded days needed on top of the missed ones
-REPAIR_SINCE = dt.date(2026, 11, 10)  # earlier gaps keep their old outcome
+REPAIR_SINCE = dt.date(2026, 11, 10)  # repairs completed earlier are not applied
+REPAIR_WINDOW = dt.timedelta(days=60)  # how far back an old streak can be reclaimed
 
 
 def repair_need(missed):
     return missed + REPAIR_EXTRA
 
 
-def apply_repairs(out, repairs):
-    """A broken chain comes back once the member records missed+2 days in a row after the gap.
+def _run_length(statuses):
+    run = 0
+    for st in statuses:
+        if st in ("metro", "done"):
+            run += 1
+        elif st == "missed":
+            run = 0
+    return run
 
-    Missed days become "repaired": they bridge the chain but add nothing. One repair per month.
+
+def _repair_candidates(statuses, dates, run_start, upto):
+    """Earlier recorded days the current run could be linked back to: (streak after linking, missed indexes)."""
+    seen, out = set(), []
+    e = run_start - 1
+    while e >= 0 and dates[run_start] - dates[e] <= REPAIR_WINDOW:
+        if statuses[e] in ("done", "metro"):
+            missed = tuple(i for i in range(e + 1, run_start) if statuses[i] == "missed")
+            if missed and missed not in seen:
+                seen.add(missed)
+                trial = list(statuses[:upto + 1])
+                for i in missed:
+                    trial[i] = "repaired"
+                out.append((_run_length(trial), missed))
+        e -= 1
+    return out
+
+
+def apply_repairs(out, repairs):
+    """A broken streak comes back once the member records (missed days + 2) days in a row.
+
+    The streak linked to is the best one that ended within the window; every missed day in
+    between becomes "repaired", which bridges the chain but adds nothing to it.
     """
-    months, i, n = set(), 0, len(out)
-    while i < n:
-        if out[i][1] != "missed":
-            i += 1
+    statuses, dates = [s for _, s in out], [d for d, _ in out]
+    run_start, run_len, bridged = None, 0, 0
+    for k, st in enumerate(statuses):
+        if st == "missed":
+            run_start, run_len, bridged = None, 0, 0
             continue
-        j = i
-        while j < n and out[j][1] in ("missed", "joker"):
-            j += 1
-        missed = [k for k in range(i, j) if out[k][1] == "missed"]
-        p = i - 1
-        while p >= 0 and out[p][1] == "joker":
-            p -= 1
-        need, got, k, done_on = repair_need(len(missed)), 0, j, None
-        while k < n and out[k][1] != "missed":
-            if out[k][1] in ("done", "metro"):
-                got += 1
-                if got == need:
-                    done_on = out[k][0]
-                    break
-            k += 1
-        month = (out[i][0].year, out[i][0].month)
-        if p >= 0 and out[p][1] in ("done", "metro", "repaired") and done_on and done_on >= REPAIR_SINCE \
-                and month not in months:
-            for m in missed:
-                out[m] = (out[m][0], "repaired")
-            months.add(month)
-            repairs.append({"gap_start": out[i][0], "completed": done_on, "missed": len(missed)})
-        i = j
+        if st not in ("done", "metro"):
+            continue
+        if run_start is None:
+            run_start = k
+        run_len += 1
+        if dates[k] < REPAIR_SINCE:
+            continue
+        # Days already bridged in this run still count, so linking step by step costs the same
+        options = [c for c in _repair_candidates(statuses, dates, run_start, k)
+                   if repair_need(bridged + len(c[1])) <= run_len]
+        if not options:
+            continue
+        _, missed = max(options, key=lambda c: (c[0], -len(c[1])))
+        for i in missed:
+            statuses[i] = "repaired"
+            out[i] = (dates[i], "repaired")
+        bridged += len(missed)
+        repairs.append({"gap_start": dates[missed[0]], "completed": dates[k], "missed": len(missed)})
+        # The merged chain may itself be linked further back later in the same run
+        while run_start > 0 and statuses[run_start - 1] != "missed":
+            run_start -= 1
 
 
 def repair_offer(hist):
-    """For a chain broken just before today: (missed days, old streak) if it can still be repaired."""
+    """For a chain broken just before today: (days needed in a row, streak that comes back), or None."""
     if len(hist) < 2 or hist[-1][1] not in ("done", "metro"):
         return None
-    k = len(hist) - 2
-    while k >= 0 and hist[k][1] == "joker":
-        k -= 1
-    if k < 0 or hist[k][1] != "missed":
+    before = [s for _, s in hist[:-1] if s != "joker"]
+    if not before or before[-1] != "missed":
         return None
-    end = k
-    while k >= 0 and hist[k][1] in ("missed", "joker"):
-        k -= 1
-    missed = sum(1 for _, s in hist[k + 1:end + 1] if s == "missed")
-    if k < 0 or hist[k][1] not in ("done", "metro", "repaired"):
+    statuses, dates = [s for _, s in hist], [d for d, _ in hist]
+    options = _repair_candidates(statuses, dates, len(hist) - 1, len(hist) - 2)
+    if not options:
         return None
-    start = hist[k + 1][0]
-    if any(s == "repaired" and (d.year, d.month) == (start.year, start.month) for d, s in hist):
-        return None
-    old, _ = chain_stats(hist[:k + 1])
-    return (missed, old) if old else None
+    old, missed = max(options, key=lambda c: (c[0], -len(c[1])))
+    return (repair_need(len(missed)), old) if old else None
 
 
 def chain_stats(hist):
@@ -1105,7 +1126,7 @@ def check_milestones(chat_id, user):
         line = f"🔁 {name} geri döndü! Toplam {len(st['days'])}. gün."
         offer = repair_offer(hist)
         if offer:
-            line += f" {repair_need(offer[0])} gün üst üste kaydedersen eski {offer[1]} günlük serin geri gelir."
+            line += f" {offer[0]} gün üst üste kaydedersen eski {offer[1]} günlük serin geri gelir."
         lines.append(line)
         if cel_key is None:
             cel_key, emoji = "comeback", "🔁"
@@ -1133,7 +1154,7 @@ def handle_command(cmd, msg, user):
              "Metronomla çalışırsan (hoparlörden, kayıtta duyulacak şekilde) 🔥 alırsın.\n"
              "Haftada 1 gün atlama hakkın var (🃏 joker), seri bozulmaz.\n"
              "Seri bozulursa, kaçırdığın gün sayısının 2 fazlası kadar gün üst üste kaydedip "
-             "eski serini kurtarabilirsin (🩹, ayda bir kez).\n"
+             "eski serini kurtarabilirsin (🩹, son 60 gün içinde biten seriler).\n"
              "Not eklemek için mesaja açıklama yaz ya da kendi kaydına yanıt ver.\n"
              "İçinde müzik olmayan sesli mesajlar (sadece konuşma) pratik sayılmaz.\n\n"
              "/bugun – bugün kim kaydetti\n"

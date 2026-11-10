@@ -115,7 +115,7 @@ def test_seri_shows_history_with_joker(env):
     text = env.tg.sent()[-1]
     assert "⛓" not in text and not text.startswith("Seriler")
     emre_line = text.split("\n")[1]
-    assert len(re.findall("🔥|❤|🃏|💔", emre_line)) == 20
+    assert len(re.findall("🔥|❤|🃏|🩹|💔", emre_line)) == 20
     assert "🃏" in emre_line
     can_line = text.split("\n")[-1]
     assert len(re.findall("🃏|💔", can_line)) == 2 and not re.search("🔥|❤", can_line)
@@ -1539,9 +1539,10 @@ def test_streak_repair(env, monkeypatch):
     assert [s for d, s in hist if d.isoformat() in ("2026-11-12", "2026-11-13")] == ["joker", "repaired"]
 
 
-def test_repair_needs_missed_plus_two_and_once_a_month():
+def test_repair_needs_missed_plus_two_and_reaches_back_to_the_best_streak():
     import main as m
     D = dt.date
+
     def run(statuses, start=D(2026, 11, 12)):
         out = [(start + dt.timedelta(days=i), s) for i, s in enumerate(statuses)]
         reps = []
@@ -1551,5 +1552,23 @@ def test_repair_needs_missed_plus_two_and_once_a_month():
     assert s.count("repaired") == 0
     s, _ = run(["done", "missed", "missed", "done", "done", "done", "done"])
     assert s.count("repaired") == 2
+    # Two separate gaps are both repaired; there is no monthly limit
     s, reps = run(["done", "missed", "done", "done", "done", "missed", "done", "done", "done"])
-    assert s.count("repaired") == 1 and len(reps) == 1
+    assert s.count("repaired") == 2 and len(reps) == 2
+    # A long streak behind sporadic days comes back once missed+2 days are recorded in a row
+    long = ["done"] * 10 + ["missed", "done", "missed", "done", "missed"]
+    s, _ = run(long + ["done"] * 4)
+    assert m.chain_stats(list(zip(range(len(s)), s)))[0] < 10
+    s, reps = run(long + ["done"] * 5)
+    assert s.count("repaired") == 3 and m.chain_stats(list(zip(range(len(s)), s)))[0] == 17
+    # Repairs completed before the feature existed stay as they were
+    s, _ = run(["done", "missed", "done", "done", "done"], start=D(2026, 11, 1))
+    assert s.count("repaired") == 0
+
+
+def test_comeback_offer_targets_longest_recent_streak():
+    import main as m
+    start = dt.date(2026, 11, 12)
+    st = ["done"] * 10 + ["missed", "done", "missed", "missed", "done"]
+    hist = [(start + dt.timedelta(days=i), s) for i, s in enumerate(st)]
+    assert m.repair_offer(hist) == (5, 11)

@@ -522,7 +522,7 @@ def song_of(rec):
 # Takes whose name starts a word with one of these are practice, not songs ("riffsiki" counts too)
 EXERCISE_WORDS = ["jam", "scale", "skala", "arpej", "arpeggio", "riff", "lick", "egzersiz", "exercise", "etut",
                   "etude", "calisma", "isinma", "warmup", "warm up", "dogaclama", "improv", "teknik", "technique",
-                  "metronom", "akor", "chord", "ritim", "groove"]
+                  "metronom", "akor", "chord", "ritim", "groove", "soundgym", "sound gym"]
 # "gam" only as a whole word, so "game" stays a song
 _EXERCISE_RE = re.compile(r"(?<![a-z0-9])(" + "|".join(sorted(map(re.escape, EXERCISE_WORDS), key=len, reverse=True))
                           + r"|gam(?:lar|lari)?(?![a-z0-9]))")
@@ -819,6 +819,13 @@ def find_media(msg):
     for k in ("voice", "audio", "video_note", "video"):
         if msg.get(k):
             return msg[k], k
+    # A SoundGym screenshot counts as ear-training practice
+    if "soundgym" in _fold(msg.get("caption") or "").replace(" ", ""):
+        if msg.get("photo"):
+            return max(msg["photo"], key=lambda p: p.get("file_size") or p.get("width", 0)), "soundgym"
+        doc = msg.get("document") or {}
+        if (doc.get("mime_type") or "").startswith("image/"):
+            return doc, "soundgym"
     doc = msg.get("document")
     if doc:
         mime = doc.get("mime_type") or ""
@@ -830,6 +837,9 @@ def find_media(msg):
 
 
 def media_type(media, kind):
+    if kind == "soundgym":
+        mime = media.get("mime_type") or "image/jpeg"
+        return mime, (mimetypes.guess_extension(mime) or ".jpg").lstrip(".").replace("jpeg", "jpg")
     fname = (media.get("file_name") or "").lower()
     ext = {"voice": "ogg", "video_note": "mp4"}.get(kind)
     if not ext:
@@ -1022,8 +1032,9 @@ def store_recording(msg, user, media, kind, content, mime, ext, force=False):
     chat_id = msg["chat"]["id"]
     mid = msg["message_id"]
     ref = db.collection("recordings").document(f"{chat_id}_{mid}")
+    image = kind == "soundgym"
     # Voice messages that are only talk are chat between members, not practice
-    if not force and not music.has_music(content):
+    if not image and not force and not music.has_music(content):
         log.info("no music in %s_%s, not recorded", chat_id, mid)
         return False
     upsert_member(user)
@@ -1033,7 +1044,7 @@ def store_recording(msg, user, media, kind, content, mime, ext, force=False):
         path = f"recordings/{day:%Y/%m/%d}/{user['id']}_{mid}.{ext}"
         bucket.blob(path).upload_from_string(content, content_type=mime)
         try:
-            has_metro, bpm, decoded_sec, tempo = metronome.analyze(content)
+            has_metro, bpm, decoded_sec, tempo = (False, None, 0, None) if image else metronome.analyze(content)
         except Exception:
             log.exception("metronome detection failed")
             has_metro, bpm, decoded_sec, tempo = False, None, 0, None
@@ -1060,7 +1071,7 @@ def store_recording(msg, user, media, kind, content, mime, ext, force=False):
         send(chat_id, "Bu kayıt kaydedilemedi. Lütfen tekrar gönder.", mid)
         return True
     tg("setMessageReaction", chat_id=chat_id, message_id=mid,
-       reaction=[{"type": "emoji", "emoji": "🔥" if has_metro else "❤"}])
+       reaction=[{"type": "emoji", "emoji": "🎧" if image else "🔥" if has_metro else "❤"}])
     badge = time_badge(ts)
     if badge:
         # A message with a single emoji shows up large and animated
@@ -1156,6 +1167,7 @@ def handle_command(cmd, msg, user):
              "Seri bozulursa, kaçırdığın gün sayısının 2 fazlası kadar gün üst üste kaydedip "
              "eski serini kurtarabilirsin (🩹, son 60 gün içinde biten seriler).\n"
              "Not eklemek için mesaja açıklama yaz ya da kendi kaydına yanıt ver.\n"
+             "SoundGym çalıştıysan sonuç ekranının görüntüsünü \"soundgym\" yazarak at, 🎧 alırsın.\n"
              "İçinde müzik olmayan sesli mesajlar (sadece konuşma) pratik sayılmaz.\n\n"
              "/bugun – bugün kim kaydetti\n"
              "/seri – son 20 gün (🔥 metronomlu, ❤ kaydetti, 🃏 joker, 🩹 kurtarıldı, 💔 atladı)\n"
@@ -2068,6 +2080,7 @@ def calendar_page():
                 "caption": note_text(r), "mime": r.get("mime", ""),
                 "file_name": r.get("file_name", ""),
                 "video": (r.get("mime") or "").startswith("video/") or r.get("kind") in ("video_note", "video"),
+                "image": r.get("kind") == "soundgym",
                 "round": r.get("kind") == "video_note",
                 "metronome": bool(r.get("metronome")), "bpm": r.get("bpm"), "tempo": r.get("tempo"),
                 "listeners": [names.get(u, "") for u in (r.get("listeners") or [])
@@ -2259,6 +2272,7 @@ table.sum tr.inactive td{color:var(--muted)}
 .rec .cap{white-space:pre-wrap;overflow-wrap:anywhere}
 .rec audio,.rec video{width:100%;max-width:100%}
 .rec video{border-radius:8px;max-height:70vh;background:#000}
+.rec img.shot{display:block;max-width:100%;max-height:420px;border-radius:8px;margin-top:6px}
 .rec video.round{max-width:240px;border-radius:50%;aspect-ratio:1;object-fit:cover}
 .note{border-radius:8px;padding:8px 12px;font-size:14px}
 .note.miss{background:var(--miss-soft);border:1px solid var(--miss)}
@@ -2339,13 +2353,14 @@ table.sum tr.inactive td{color:var(--muted)}
       {% for r in d.recs %}
       <article class="rec">
         <div class="head"><span class="who">{{ r.name }}</span>
-          <span class="meta">{{ r.time }} · {{ r.duration }}</span>
+          <span class="meta">{{ r.time }} · {% if r.image %}🎧 SoundGym{% else %}{{ r.duration }}{% endif %}</span>
           {% if r.metronome %}<span class="bpm">🔥 ♩ {{ r.bpm }} bpm</span>
           {% elif r.tempo %}<span class="tempo" title="Metronomsuz, çalınan tempodan tahmin">♩ ~{{ r.tempo }} bpm</span>{% endif %}
           <a class="dl" href="/audio/{{ r.id }}?dl=1">İndir</a></div>
         {% if r.file_name %}<div class="fname">📄 {{ r.file_name }}</div>{% endif %}
         {% if r.caption %}<div class="cap">{{ r.caption }}</div>{% endif %}
-        {% if r.video %}<video controls preload="metadata" playsinline class="{{ 'round' if r.round }}" data-id="{{ r.id }}" src="/audio/{{ r.id }}#t=0.1"></video>
+        {% if r.image %}<a href="/audio/{{ r.id }}" target="_blank"><img class="shot" loading="lazy" alt="SoundGym" src="/audio/{{ r.id }}"></a>
+        {% elif r.video %}<video controls preload="metadata" playsinline class="{{ 'round' if r.round }}" data-id="{{ r.id }}" src="/audio/{{ r.id }}#t=0.1"></video>
         {% else %}<audio controls preload="none" data-id="{{ r.id }}" src="/audio/{{ r.id }}"></audio>{% endif %}
         {% if r.listeners %}<div class="ears">👂 {{ r.listeners|join(', ') }} dinledi</div>{% endif %}
       </article>

@@ -1572,3 +1572,21 @@ def test_comeback_offer_targets_longest_recent_streak():
     st = ["done"] * 10 + ["missed", "done", "missed", "missed", "done"]
     hist = [(start + dt.timedelta(days=i), s) for i, s in enumerate(st)]
     assert m.repair_offer(hist) == (5, 11)
+
+
+def test_soundgym_screenshot_counts(env):
+    join_all(env, EMRE)
+    env.tg.next_file = b"\xff\xd8\xff fake jpeg"
+    mid = env.message(EMRE, caption="SoundGym", photo=[{"file_id": "s", "file_size": 10, "width": 90},
+                                                       {"file_id": "b", "file_size": 900, "width": 1280}])
+    rec = env.fs.store["recordings"][f"-1001_{mid}"]
+    assert rec["kind"] == "soundgym" and rec["mime"] == "image/jpeg" and rec["gcs_path"].endswith(".jpg")
+    assert env.tg.reactions()[-1] == [{"type": "emoji", "emoji": "🎧"}]
+    assert ("getFile", {"file_id": "b"}) in env.tg.calls
+    env.message(EMRE, caption="tatil", photo=[{"file_id": "x", "file_size": 5}])
+    assert len(env.fs.store["recordings"]) == 1
+    env.command(EMRE, "/sarkilarim")
+    assert "soundgym" not in env.tg.sent()[-1].lower()
+    env.client.get("/?t=tok")
+    r = env.client.get("/")
+    assert r.status_code == 200 and b'class="shot"' in r.data and "🎧 SoundGym".encode() in r.data

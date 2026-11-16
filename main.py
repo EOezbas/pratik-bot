@@ -428,21 +428,6 @@ def apply_repairs(out, repairs):
             run_start -= 1
 
 
-def repair_offer(hist):
-    """For a chain broken just before today: (days needed in a row, streak that comes back), or None."""
-    if len(hist) < 2 or hist[-1][1] not in ("done", "metro"):
-        return None
-    before = [s for _, s in hist[:-1] if s != "joker"]
-    if not before or before[-1] != "missed":
-        return None
-    statuses, dates = [s for _, s in hist], [d for d, _ in hist]
-    options = _repair_candidates(statuses, dates, len(hist) - 1, len(hist) - 2)
-    if not options:
-        return None
-    old, missed = max(options, key=lambda c: (c[0], -len(c[1])))
-    return (repair_need(len(missed)), old) if old else None
-
-
 def chain_stats(hist):
     """Current and longest streak; joker days keep the chain but add nothing."""
     longest = run = 0
@@ -1071,7 +1056,7 @@ def store_recording(msg, user, media, kind, content, mime, ext, force=False):
         send(chat_id, "Bu kayıt kaydedilemedi. Lütfen tekrar gönder.", mid)
         return True
     tg("setMessageReaction", chat_id=chat_id, message_id=mid,
-       reaction=[{"type": "emoji", "emoji": "🎧" if image else "🔥" if has_metro else "❤"}])
+       reaction=[{"type": "emoji", "emoji": "🔥" if has_metro else "❤"}])
     badge = time_badge(ts)
     if badge:
         # A message with a single emoji shows up large and animated
@@ -1128,26 +1113,15 @@ def check_milestones(chat_id, user):
             lines.append(f"🎉 {mention(uid, member.get('name', ''))} {nth} kaydını attı!")
             if cel_key is None:
                 cel_key, emoji = f"count{st['count']}", "🎊"
-    # First take after a broken streak is welcomed, so starting over feels like a win
     t = today()
-    before = [status for _, status in hist[:-1] if status != "joker"]
     name = mention(uid, member.get('name', ''))
-    if cur == 1 and before and before[-1] == "missed" and f"comeback:{t.isoformat()}" not in reached:
-        new_keys.append(f"comeback:{t.isoformat()}")
-        line = f"🔁 {name} geri döndü! Toplam {len(st['days'])}. gün."
-        offer = repair_offer(hist)
-        if offer:
-            line += f" {offer[0]} gün üst üste kaydedersen eski {offer[1]} günlük serin geri gelir."
-        lines.append(line)
+    fresh = [f"repair:{r['gap_start'].isoformat()}" for r in repairs if r["completed"] == t]
+    fresh = [k for k in fresh if k not in reached]
+    if fresh:
+        new_keys += fresh
+        lines.append(f"🩹 {name} serisini kurtardı: {cur} gün!")
         if cel_key is None:
-            cel_key, emoji = "comeback", "🔁"
-    for r in repairs:
-        key = f"repair:{r['gap_start'].isoformat()}"
-        if r["completed"] == t and key not in reached:
-            new_keys.append(key)
-            lines.append(f"🩹 {name} serisini kurtardı: {cur} gün!")
-            if cel_key is None or cel_key == "comeback":
-                cel_key, emoji = "repair", "🩹"
+            cel_key, emoji = "repair", "🩹"
     if new_keys:
         ref.set({"milestones": sorted(reached | set(new_keys))}, merge=True)
         send(chat_id, "\n".join(lines))
@@ -1167,7 +1141,7 @@ def handle_command(cmd, msg, user):
              "Seri bozulursa, kaçırdığın gün sayısının 2 fazlası kadar gün üst üste kaydedip "
              "eski serini kurtarabilirsin (🩹, son 60 gün içinde biten seriler).\n"
              "Not eklemek için mesaja açıklama yaz ya da kendi kaydına yanıt ver.\n"
-             "SoundGym çalıştıysan sonuç ekranının görüntüsünü \"soundgym\" yazarak at, 🎧 alırsın.\n"
+             "SoundGym çalıştıysan sonuç ekranının görüntüsünü \"soundgym\" yazarak at, pratik sayılır.\n"
              "İçinde müzik olmayan sesli mesajlar (sadece konuşma) pratik sayılmaz.\n\n"
              "/bugun – bugün kim kaydetti\n"
              "/seri – son 20 gün (🔥 metronomlu, ❤ kaydetti, 🃏 joker, 🩹 kurtarıldı, 💔 atladı)\n"
@@ -1626,7 +1600,7 @@ def delete_recording(msg, user, keep_message=False):
 def milestone_labels(cel):
     return [(f"streak{n}", f"{n} gün") for n in sorted(cel["streaks"])] + \
            [(f"count{n}", "İlk kayıt" if n == 1 else f"{n}. kayıt") for n in sorted(cel["counts"])] + \
-           [("comeback", "Geri dönüş"), ("repair", "Seri kurtarma"), ("join", "Katılma (/katil)"), ("leave", "Ayrılma (/ayril)"),
+           [("repair", "Seri kurtarma"), ("join", "Katılma (/katil)"), ("leave", "Ayrılma (/ayril)"),
             ("music_yes", "Müzik var"), ("music_maybe", "Müzik olabilir"), ("music_no", "Müzik yok")]
 
 

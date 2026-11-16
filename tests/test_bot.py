@@ -348,7 +348,7 @@ def test_milestones_31_and_69(env):
 def test_milestone_list(env):
     labels = [b["text"] for row in env.main.milestone_keyboard(env.main.load_celebrations())["keyboard"] for b in row]
     assert labels == ["7 gün", "14 gün", "21 gün", "30 gün", "60 gün", "365 gün", "İlk kayıt",
-                      "5. kayıt", "31. kayıt", "50. kayıt", "69. kayıt", "100. kayıt", "Geri dönüş", "Seri kurtarma", "Katılma (/katil)", "Ayrılma (/ayril)", "Müzik var", "Müzik olabilir", "Müzik yok", "İptal"]
+                      "5. kayıt", "31. kayıt", "50. kayıt", "69. kayıt", "100. kayıt", "Seri kurtarma", "Katılma (/katil)", "Ayrılma (/ayril)", "Müzik var", "Müzik olabilir", "Müzik yok", "İptal"]
 
 
 def test_first_and_fifth_recording(env, plain_wav):
@@ -1493,18 +1493,6 @@ def test_rehearsal_review_flow(env, monkeypatch):
     assert st()["rehearsal_review"]["stage"] == "closed"
 
 
-def test_comeback_after_broken_streak(env, plain_wav):
-    join_all(env, EMRE)
-    for back in (6, 5):
-        env.add_recording(EMRE["id"], back)
-    env.set_first_day(EMRE["id"], 6)
-    env.voice(EMRE, plain_wav)
-    out = env.tg.sent()
-    assert any("geri döndü! Toplam 3. gün" in t for t in out)
-    env.voice(EMRE, plain_wav)
-    assert sum("geri döndü" in t for t in env.tg.sent()) == 1
-
-
 def test_seri_and_reminder_show_total_days(env):
     join_all(env, EMRE)
     for back in (9, 8, 7):
@@ -1526,8 +1514,7 @@ def test_streak_repair(env, monkeypatch):
         env.add_recording(EMRE["id"], back, duration=60)
     env.set_first_day(EMRE["id"], 5)
     m.check_milestones(-1001, EMRE)
-    assert any("geri döndü! Toplam 4. gün. 3 gün üst üste kaydedersen eski 3 günlük serin geri gelir." in t
-               for t in env.tg.sent())
+    assert not any("geri döndü" in t for t in env.tg.sent())
     day[0] = dt.date(2026, 11, 16)
     store = env.fs.store["recordings"]
     for back in (1, 0):
@@ -1566,14 +1553,6 @@ def test_repair_needs_missed_plus_two_and_reaches_back_to_the_best_streak():
     assert s.count("repaired") == 0
 
 
-def test_comeback_offer_targets_longest_recent_streak():
-    import main as m
-    start = dt.date(2026, 11, 12)
-    st = ["done"] * 10 + ["missed", "done", "missed", "missed", "done"]
-    hist = [(start + dt.timedelta(days=i), s) for i, s in enumerate(st)]
-    assert m.repair_offer(hist) == (5, 11)
-
-
 def test_soundgym_screenshot_counts(env):
     join_all(env, EMRE)
     env.tg.next_file = b"\xff\xd8\xff fake jpeg"
@@ -1581,7 +1560,7 @@ def test_soundgym_screenshot_counts(env):
                                                        {"file_id": "b", "file_size": 900, "width": 1280}])
     rec = env.fs.store["recordings"][f"-1001_{mid}"]
     assert rec["kind"] == "soundgym" and rec["mime"] == "image/jpeg" and rec["gcs_path"].endswith(".jpg")
-    assert env.tg.reactions()[-1] == [{"type": "emoji", "emoji": "🎧"}]
+    assert env.tg.reactions()[-1] == [{"type": "emoji", "emoji": "❤"}]
     assert ("getFile", {"file_id": "b"}) in env.tg.calls
     env.message(EMRE, caption="tatil", photo=[{"file_id": "x", "file_size": 5}])
     assert len(env.fs.store["recordings"]) == 1
